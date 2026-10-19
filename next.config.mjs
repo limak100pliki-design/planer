@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
+const isCloudflare = Boolean(process.env.CF_PAGES || process.env.OUTPUT_EXPORT);
+
 const nextConfig = {
-  output: 'export',
+  output: isCloudflare ? 'export' : 'standalone',
   typescript: {
     // Pomija blokowanie buildu przez niezgodności typów
     ignoreBuildErrors: true,

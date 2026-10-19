@@ -1,4 +1,3 @@
-import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
@@ -28,8 +27,11 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
   colorScheme: 'light',
-  themeColor: '#f9f8f3',
+  themeColor: '#1f5f3e',
 }
 
 export default function RootLayout({
@@ -41,7 +43,6 @@ export default function RootLayout({
     <html lang="pl" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body className="antialiased">
         {children}
-        {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
   )

@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Clock, Search } from 'lucide-react'
+import { Clock, Search, X } from 'lucide-react'
 import { usePlanner } from '@/lib/store'
 import { ingredientsNutrition } from '@/lib/nutrition'
 import type { DateKey, MealSlot } from '@/lib/types'
@@ -9,6 +9,16 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { MacroPills } from '@/components/shared'
+
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/ł/g, 'l')
+    .replace(/Ł/g, 'l')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+}
 
 export function AddMealDialog({
   open,
@@ -27,10 +37,22 @@ export function AddMealDialog({
   const [query, setQuery] = useState('')
 
   const sorted = useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const q = normalizeText(query)
     return recipes
-      .filter((r) => !q || r.name.toLowerCase().includes(q))
-      .map((r) => ({ recipe: r, suggested: r.mealTypes.includes(slot) }))
+      .filter((r) => {
+        if (!q) return true
+        const nameMatch = normalizeText(r.name).includes(q)
+        const ingredientMatch = r.ingredients.some((i) => normalizeText(i.name).includes(q))
+        return nameMatch || ingredientMatch
+      })
+      .map((r) => {
+        const matchedIng = q ? r.ingredients.filter((i) => normalizeText(i.name).includes(q)).map((i) => i.name) : []
+        return {
+          recipe: r,
+          suggested: r.mealTypes.includes(slot),
+          matchedIngredients: matchedIng,
+        }
+      })
       .sort((a, b) => Number(b.suggested) - Number(a.suggested))
   }, [recipes, query, slot])
 
@@ -53,17 +75,29 @@ export function AddMealDialog({
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Szukaj przepisu…"
+            placeholder="Szukaj po nazwie lub składniku…"
             aria-label="Szukaj przepisu"
-            className="pl-8"
+            className="pl-8 pr-8"
           />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              aria-label="Wyczyść wyszukiwanie"
+              className="absolute top-1/2 right-2.5 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
         </div>
 
         <ul className="-mx-1 max-h-[55vh] space-y-1 overflow-y-auto px-1">
           {sorted.length === 0 && (
-            <li className="py-8 text-center text-sm text-muted-foreground">Nie znaleziono przepisów.</li>
+            <li className="py-8 text-center text-sm text-muted-foreground">
+              Nie znaleziono przepisów pasujących do „{query}”.
+            </li>
           )}
-          {sorted.map(({ recipe, suggested }) => (
+          {sorted.map(({ recipe, suggested, matchedIngredients }) => (
             <li key={recipe.id}>
               <button
                 type="button"
@@ -76,11 +110,18 @@ export function AddMealDialog({
               >
                 <div className="flex items-start justify-between gap-2">
                   <span className="text-sm font-medium leading-snug">{recipe.name}</span>
-                  {suggested && (
-                    <Badge variant="secondary" className="shrink-0">
-                      Polecane
-                    </Badge>
-                  )}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {matchedIngredients.length > 0 && (
+                      <Badge variant="outline" className="border-primary/30 text-[10px] text-primary">
+                        {matchedIngredients.join(', ')}
+                      </Badge>
+                    )}
+                    {suggested && (
+                      <Badge variant="secondary">
+                        Polecane
+                      </Badge>
+                    )}
+                  </div>
                 </div>
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
                   <MacroPills nutrition={ingredientsNutrition(recipe.ingredients)} />

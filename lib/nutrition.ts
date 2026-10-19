@@ -89,3 +89,69 @@ export function emptyDayPlan(date: string): DayPlan {
     meals: { sniadanie: [], drugieSniadanie: [], obiad: [], kolacja: [] },
   }
 }
+
+export interface MacroDistribution {
+  proteinKcal: number
+  carbsKcal: number
+  fatKcal: number
+  totalMacroKcal: number
+  proteinPct: number
+  carbsPct: number
+  fatPct: number
+}
+
+export function calculateMacroDistribution(nutrition: Nutrition): MacroDistribution {
+  const proteinKcal = nutrition.protein * 4
+  const carbsKcal = nutrition.carbs * 4
+  const fatKcal = nutrition.fat * 9
+  const totalMacroKcal = proteinKcal + carbsKcal + fatKcal
+
+  if (totalMacroKcal <= 0) {
+    return {
+      proteinKcal: 0,
+      carbsKcal: 0,
+      fatKcal: 0,
+      totalMacroKcal: 0,
+      proteinPct: 0,
+      carbsPct: 0,
+      fatPct: 0,
+    }
+  }
+
+  const pPct = Math.round((proteinKcal / totalMacroKcal) * 100)
+  const cPct = Math.round((carbsKcal / totalMacroKcal) * 100)
+  const fPct = Math.max(0, 100 - pPct - cPct)
+
+  return {
+    proteinKcal,
+    carbsKcal,
+    fatKcal,
+    totalMacroKcal,
+    proteinPct: pPct,
+    carbsPct: cPct,
+    fatPct: fPct,
+  }
+}
+
+export interface NutritionStatus {
+  diff: number
+  percent: number
+  state: 'under' | 'match' | 'over'
+  label: string
+}
+
+export function getNutritionStatus(actualKcal: number, targetKcal: number): NutritionStatus {
+  if (targetKcal <= 0) {
+    return { diff: 0, percent: 0, state: 'match', label: 'Brak ustalonego celu' }
+  }
+  const diff = actualKcal - targetKcal
+  const percent = Math.round((actualKcal / targetKcal) * 100)
+
+  if (Math.abs(diff) <= 75) {
+    return { diff, percent, state: 'match', label: 'Cel osiągnięty idealnie' }
+  } else if (diff < 0) {
+    return { diff, percent, state: 'under', label: `Pozostało ${formatNumber(Math.abs(diff))} kcal` }
+  } else {
+    return { diff, percent, state: 'over', label: `Przekroczono o ${formatNumber(diff)} kcal` }
+  }
+}
