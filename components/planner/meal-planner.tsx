@@ -35,7 +35,9 @@ export function MealPlanner() {
 
       <DayStrip weekStart={weekStart} selectedKey={dateKey} onSelect={setSelectedDate} />
 
-      <h2 className="mt-8 mb-4 text-lg font-semibold tracking-tight">{formatLongDate(selectedDate)}</h2>
+      <h2 suppressHydrationWarning className="mt-8 mb-4 text-lg font-semibold tracking-tight">
+        {formatLongDate(selectedDate)}
+      </h2>
 
       <DailySummary plan={plan} />
 

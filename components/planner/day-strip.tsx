@@ -33,6 +33,7 @@ export function DayStrip({
             role="tab"
             aria-selected={selected}
             onClick={() => onSelect(date)}
+            suppressHydrationWarning
             className={cn(
               'flex flex-col items-center gap-1 rounded-xl border px-1 py-2.5 text-center transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:py-3',
               selected

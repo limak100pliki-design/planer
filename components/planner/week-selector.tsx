@@ -22,7 +22,7 @@ export function WeekSelector({
         <Button variant="ghost" size="icon" onClick={onPrev} aria-label="Poprzedni tydzień">
           <ChevronLeft />
         </Button>
-        <span className="min-w-44 px-1 text-center text-sm font-medium tabular-nums" aria-live="polite">
+        <span suppressHydrationWarning className="min-w-44 px-1 text-center text-sm font-medium tabular-nums" aria-live="polite">
           {formatWeekRange(weekStart)}
         </span>
         <Button variant="ghost" size="icon" onClick={onNext} aria-label="Następny tydzień">

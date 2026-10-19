@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { BookOpen, CalendarDays, Leaf, Scale, ShoppingBasket, Target } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MealPlanner } from '@/components/planner/meal-planner'
@@ -21,6 +21,12 @@ type SectionId = (typeof SECTIONS)[number]['id']
 
 export function AppShell() {
   const [active, setActive] = useState<SectionId>('planer')
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const currentSection = SECTIONS.find((s) => s.id === active)!
   const ActiveComponent = currentSection.component
 
@@ -55,7 +61,23 @@ export function AppShell() {
 
       {/* Main Content Area */}
       <main className="mx-auto w-full max-w-6xl px-4 py-6 pb-24 sm:px-6 lg:px-10 lg:py-10 lg:pb-10">
-        <ActiveComponent />
+        {mounted ? (
+          <ActiveComponent />
+        ) : (
+          <div className="space-y-6 animate-pulse">
+            <div className="h-9 w-64 rounded-lg bg-muted" />
+            <div className="grid grid-cols-7 gap-2">
+              {Array.from({ length: 7 }).map((_, i) => (
+                <div key={i} className="h-24 rounded-xl bg-muted" />
+              ))}
+            </div>
+            <div className="h-44 rounded-2xl bg-muted" />
+            <div className="grid gap-4 xl:grid-cols-2">
+              <div className="h-64 rounded-xl bg-muted" />
+              <div className="h-64 rounded-xl bg-muted" />
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Mobile Bottom Navigation Bar (thumb-friendly for smartphones) */}
