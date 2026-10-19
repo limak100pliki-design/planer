@@ -1,13 +1,29 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { BookOpen, CalendarDays, Leaf, Scale, ShoppingBasket, Target } from 'lucide-react'
+import {
+  BookOpen,
+  CalendarDays,
+  Cloud,
+  CloudCheck,
+  Leaf,
+  Loader2,
+  LogIn,
+  LogOut,
+  Scale,
+  ShoppingBasket,
+  Sparkles,
+  Target,
+  UserCheck,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { usePlanner } from '@/lib/store'
 import { MealPlanner } from '@/components/planner/meal-planner'
 import { RecipesView } from '@/components/recipes/recipes-view'
 import { SettingsView } from '@/components/settings/settings-view'
 import { WeightView } from '@/components/weight/weight-view'
 import { ShoppingView } from '@/components/shopping/shopping-view'
+import { Button } from '@/components/ui/button'
 
 const SECTIONS = [
   { id: 'planer', label: 'Planer Posiłków', shortLabel: 'Planer', icon: CalendarDays, component: MealPlanner },
@@ -22,6 +38,7 @@ type SectionId = (typeof SECTIONS)[number]['id']
 export function AppShell() {
   const [active, setActive] = useState<SectionId>('planer')
   const [mounted, setMounted] = useState(false)
+  const { user, login, logout, isLoadingAuth, isSyncing } = usePlanner()
 
   useEffect(() => {
     setMounted(true)
@@ -46,17 +63,93 @@ export function AppShell() {
             />
           ))}
         </nav>
-        <div className="mt-auto border-t p-4 text-xs leading-relaxed text-muted-foreground">
-          Dane demonstracyjne. Gotowe do synchronizacji z Cloudflare Pages i bazą danych.
+
+        {/* User Account & Firebase Cloud Sync Box */}
+        <div className="mt-auto border-t p-3">
+          {isLoadingAuth ? (
+            <div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
+              <Loader2 className="size-3.5 animate-spin" />
+              Ładowanie konta...
+            </div>
+          ) : user ? (
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+              <div className="flex items-center gap-2.5">
+                {user.photoURL ? (
+                  <img
+                    src={user.photoURL}
+                    alt={user.displayName || 'Użytkownik'}
+                    className="size-8 rounded-full border border-primary/30 object-cover"
+                  />
+                ) : (
+                  <div className="flex size-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                    {user.displayName?.charAt(0) || user.email?.charAt(0) || 'U'}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1 leading-tight">
+                  <p className="truncate text-xs font-semibold text-foreground">
+                    {user.displayName || 'Użytkownik'}
+                  </p>
+                  <p className="flex items-center gap-1 text-[11px] text-primary">
+                    <Cloud className="size-3" />
+                    {isSyncing ? 'Synchronizacja...' : 'Zsynchronizowano'}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={logout}
+                className="mt-2.5 h-7 w-full justify-start text-xs text-muted-foreground hover:text-destructive"
+              >
+                <LogOut className="size-3.5" data-icon="inline-start" />
+                Wyloguj się
+              </Button>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border/80 bg-muted/40 p-3">
+              <p className="text-xs font-medium text-foreground">Synchronizacja w chmurze</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                Zaloguj się kontem Google, aby zapisać dane w Firestore (tryb oszczędzania limitów).
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={login}
+                className="mt-2.5 h-8 w-full gap-1.5 text-xs font-medium"
+              >
+                <LogIn className="size-3.5" />
+                Zaloguj przez Google
+              </Button>
+            </div>
+          )}
         </div>
       </aside>
 
       {/* Mobile Top Header */}
       <header className="sticky top-0 z-30 flex items-center justify-between border-b bg-background/95 px-4 py-2.5 backdrop-blur lg:hidden">
         <Brand compact />
-        <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
-          {currentSection.shortLabel}
-        </span>
+        <div className="flex items-center gap-2">
+          {user ? (
+            <button
+              type="button"
+              onClick={logout}
+              title={`Zalogowano jako ${user.displayName || user.email}. Kliknij aby wylogować.`}
+              className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary"
+            >
+              <UserCheck className="size-3" />
+              <span className="max-w-[100px] truncate">{user.displayName?.split(' ')[0] || 'Konto'}</span>
+            </button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={login} className="h-7 gap-1 px-2 text-xs">
+              <LogIn className="size-3" />
+              Zaloguj
+            </Button>
+          )}
+
+          <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
+            {currentSection.shortLabel}
+          </span>
+        </div>
       </header>
 
       {/* Main Content Area */}

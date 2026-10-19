@@ -1,0 +1,85 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with daily caloric and macronutrient goals",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "goals": {
+          "type": "object",
+          "properties": {
+            "kcal": { "type": "number" },
+            "proteinPct": { "type": "number" },
+            "carbsPct": { "type": "number" },
+            "fatPct": { "type": "number" },
+            "targetWeightKg": { "type": "number" }
+          },
+          "required": ["kcal", "proteinPct", "carbsPct", "fatPct", "targetWeightKg"]
+        }
+      },
+      "required": ["uid", "goals"]
+    },
+    "Recipe": {
+      "title": "Recipe",
+      "description": "Saved recipe with ingredients, instructions and nutritional details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "description": { "type": "string", "maxLength": 4096 },
+        "prepTimeMin": { "type": "number" },
+        "mealTypes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "ingredients": {
+          "type": "array"
+        },
+        "createdAt": { "type": "string" },
+        "pochodzenie": { "type": "string", "maxLength": 512 },
+        "czyUlubiony": { "type": "boolean" }
+      },
+      "required": ["id", "name", "prepTimeMin", "mealTypes", "ingredients"]
+    },
+    "DayPlan": {
+      "title": "DayPlan",
+      "description": "Daily scheduled meals for breakfast, morning snack, lunch, and dinner",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "maxLength": 10, "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "meals": { "type": "object" }
+      },
+      "required": ["date", "meals"]
+    },
+    "WeightEntry": {
+      "title": "WeightEntry",
+      "description": "Daily body weight entry in kilograms",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "maxLength": 10, "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "weightKg": { "type": "number" }
+      },
+      "required": ["date", "weightKg"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Stores user profile and diet parameters"
+    },
+    "/users/{userId}/recipes/{recipeId}": {
+      "schema": { "$ref": "#/entities/Recipe" },
+      "description": "Stores individual recipes belonging to the user"
+    },
+    "/users/{userId}/mealPlans/{date}": {
+      "schema": { "$ref": "#/entities/DayPlan" },
+      "description": "Stores daily meal plans for a specific date"
+    },
+    "/users/{userId}/weightLogs/{date}": {
+      "schema": { "$ref": "#/entities/WeightEntry" },
+      "description": "Stores weight measurements for a specific date"
+    }
+  }
+}

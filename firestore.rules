@@ -1,0 +1,55 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: default-deny all unmatched paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Connection test document
+    match /test/{testId} {
+      allow read: if true;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    function isValidDate(dateStr) {
+      return dateStr is string && dateStr.size() == 10 && dateStr.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    // User Profile & Goals
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      // User's custom recipes
+      match /recipes/{recipeId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(recipeId);
+      }
+
+      // User's scheduled meal plans by date (YYYY-MM-DD)
+      match /mealPlans/{date} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidDate(date);
+      }
+
+      // User's weight logs by date (YYYY-MM-DD)
+      match /weightLogs/{date} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidDate(date);
+      }
+    }
+  }
+}
