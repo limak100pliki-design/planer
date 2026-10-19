@@ -1,59 +1,99 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
-@layer base {
-  :root {
-    --background: 48 33% 97%;
-    --foreground: 24 10% 10%;
-    --card: 0 0% 100%;
-    --card-foreground: 24 10% 10%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 24 10% 10%;
-    --primary: 142 71% 45%;
-    --primary-foreground: 144 100% 97%;
-    --secondary: 40 20% 92%;
-    --secondary-foreground: 24 10% 10%;
-    --muted: 40 20% 92%;
-    --muted-foreground: 25 5% 45%;
-    --accent: 40 20% 92%;
-    --accent-foreground: 24 10% 10%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 40 15% 85%;
-    --input: 40 15% 85%;
-    --ring: 142 71% 45%;
-    --radius: 0.75rem;
-  }
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 
-  .dark {
-    --background: 20 14% 8%;
-    --foreground: 48 33% 97%;
-    --card: 20 14% 11%;
-    --card-foreground: 48 33% 97%;
-    --popover: 20 14% 11%;
-    --popover-foreground: 48 33% 97%;
-    --primary: 142 71% 45%;
-    --primary-foreground: 144 100% 97%;
-    --secondary: 20 10% 16%;
-    --secondary-foreground: 48 33% 97%;
-    --muted: 20 10% 16%;
-    --muted-foreground: 24 5% 65%;
-    --accent: 20 10% 16%;
-    --accent-foreground: 48 33% 97%;
-    --destructive: 0 62% 30%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 20 10% 20%;
-    --input: 20 10% 20%;
-    --ring: 142 71% 45%;
-  }
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+:root {
+  --background: #fbfbf9;
+  --foreground: #1c1917;
+  --card: #ffffff;
+  --card-foreground: #1c1917;
+  --popover: #ffffff;
+  --popover-foreground: #1c1917;
+  
+  /* Ciemna zieleń z v0 (przycisk Planer Posiłków) */
+  --primary: #1f5f3e;
+  --primary-foreground: #ffffff;
+  
+  --secondary: #f4f3ef;
+  --secondary-foreground: #1c1917;
+  --muted: #f4f3ef;
+  --muted-foreground: #78716c;
+  --accent: #f4f3ef;
+  --accent-foreground: #1c1917;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #e7e5e4;
+  --input: #e7e5e4;
+  --ring: #1f5f3e;
+  --radius: 0.75rem;
+
+  /* Kolory pasków i wykresów */
+  --chart-1: #1f5f3e;
+  --chart-2: #ea580c;
+  --chart-3: #eab308;
+  --chart-4: #ef4444;
+  --chart-5: #3b82f6;
+}
+
+.dark {
+  --background: #141312;
+  --foreground: #fbfbf9;
+  --card: #1c1a19;
+  --card-foreground: #fbfbf9;
+  --popover: #1c1a19;
+  --popover-foreground: #fbfbf9;
+  --primary: #2d8a5b;
+  --primary-foreground: #ffffff;
+  --secondary: #292524;
+  --secondary-foreground: #fbfbf9;
+  --muted: #292524;
+  --muted-foreground: #a8a29e;
+  --accent: #292524;
+  --accent-foreground: #fbfbf9;
+  --destructive: #991b1b;
+  --destructive-foreground: #ffffff;
+  --border: #292524;
+  --input: #292524;
+  --ring: #2d8a5b;
 }
 
 @layer base {
   * {
-    border-color: hsl(var(--border));
+    border-color: var(--border);
   }
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
+    background-color: var(--background);
+    color: var(--foreground);
   }
 }
