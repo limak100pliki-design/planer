@@ -2,17 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import {
+  AlertCircle,
   BookOpen,
   CalendarDays,
+  Check,
   Cloud,
-  CloudCheck,
+  Copy,
+  ExternalLink,
   Leaf,
   Loader2,
   LogIn,
   LogOut,
   Scale,
   ShoppingBasket,
-  Sparkles,
   Target,
   UserCheck,
 } from 'lucide-react'
@@ -24,6 +26,14 @@ import { SettingsView } from '@/components/settings/settings-view'
 import { WeightView } from '@/components/weight/weight-view'
 import { ShoppingView } from '@/components/shopping/shopping-view'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 const SECTIONS = [
   { id: 'planer', label: 'Planer Posiłków', shortLabel: 'Planer', icon: CalendarDays, component: MealPlanner },
@@ -38,7 +48,8 @@ type SectionId = (typeof SECTIONS)[number]['id']
 export function AppShell() {
   const [active, setActive] = useState<SectionId>('planer')
   const [mounted, setMounted] = useState(false)
-  const { user, login, logout, isLoadingAuth, isSyncing } = usePlanner()
+  const [copiedDomain, setCopiedDomain] = useState(false)
+  const { user, login, logout, isLoadingAuth, isSyncing, authError, clearAuthError } = usePlanner()
 
   useEffect(() => {
     setMounted(true)
@@ -46,6 +57,16 @@ export function AppShell() {
 
   const currentSection = SECTIONS.find((s) => s.id === active)!
   const ActiveComponent = currentSection.component
+
+  const copyDomain = async (domain: string) => {
+    try {
+      await navigator.clipboard.writeText(domain)
+      setCopiedDomain(true)
+      setTimeout(() => setCopiedDomain(false), 2000)
+    } catch {
+      // fallback
+    }
+  }
 
   return (
     <div className="min-h-dvh lg:grid lg:grid-cols-[260px_1fr]">
@@ -212,6 +233,84 @@ export function AppShell() {
           })}
         </ul>
       </nav>
+
+      {/* Auth Error Diagnostic Modal */}
+      <Dialog open={authError !== null} onOpenChange={(open) => !open && clearAuthError()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+              <AlertCircle className="size-5" />
+              <DialogTitle>
+                {authError?.isUnauthorizedDomain
+                  ? 'Wymagana autoryzacja domeny'
+                  : authError?.isPopupBlocked
+                    ? 'Okno logowania zablokowane'
+                    : 'Informacja o logowaniu'}
+              </DialogTitle>
+            </div>
+            <DialogDescription className="text-left text-xs leading-relaxed text-muted-foreground">
+              {authError?.isUnauthorizedDomain ? (
+                <>
+                  Google Firebase wymaga jednorazowego dodania domeny Twojej aplikacji do listy zaufanych domen, aby zezwolić na logowanie.
+                </>
+              ) : authError?.isPopupBlocked ? (
+                <>
+                  Twoja przeglądarka zablokowała wyskakujące okno logowania Google. Zezwól na wyskakujące okna dla tej witryny w pasku adresu.
+                </>
+              ) : (
+                authError?.message || 'Nie udało się ukończyć logowania.'
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {authError?.isUnauthorizedDomain && (
+            <div className="space-y-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs">
+              <div>
+                <p className="font-semibold text-foreground">Domena do autoryzacji:</p>
+                <div className="mt-1 flex items-center justify-between rounded-lg border bg-background px-2.5 py-1.5 font-mono text-xs">
+                  <span>{authError.domain || 'twoja-domena.pages.dev'}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => copyDomain(authError.domain)}
+                    className="h-6 gap-1 px-2 text-[11px]"
+                  >
+                    {copiedDomain ? <Check className="size-3 text-primary" /> : <Copy className="size-3" />}
+                    {copiedDomain ? 'Skopiowano' : 'Kopiuj'}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-1 text-muted-foreground">
+                <p className="font-semibold text-foreground">Jak to zrobić w 1 minutę:</p>
+                <ol className="list-inside list-decimal space-y-1">
+                  <li>Kliknij przycisk poniżej, aby otworzyć konsolę Firebase.</li>
+                  <li>W sekcji <strong>Authorized domains</strong> kliknij <strong>Add domain</strong>.</li>
+                  <li>Wklej skopiowaną powyżej domenę i kliknij <strong>Add</strong>.</li>
+                </ol>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
+            {authError?.isUnauthorizedDomain && (
+              <Button asChild variant="default" size="sm" className="gap-1.5">
+                <a
+                  href={`https://console.firebase.google.com/project/${authError.projectId}/authentication/settings`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink className="size-3.5" />
+                  Otwórz ustawienia Firebase
+                </a>
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={clearAuthError}>
+              Zamknij
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

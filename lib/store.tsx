@@ -27,6 +27,7 @@ import {
   signInWithGoogle,
   logoutUser,
   testConnection,
+  type AuthErrorInfo,
 } from './firebase'
 import {
   DUMMY_PROFILE,
@@ -46,6 +47,7 @@ interface PlannerState {
   user: User | null
   isLoadingAuth: boolean
   isSyncing: boolean
+  authError: AuthErrorInfo | null
 }
 
 interface PlannerActions {
@@ -66,6 +68,7 @@ interface PlannerActions {
   removeWeight: (date: DateKey) => void
   login: () => Promise<void>
   logout: () => Promise<void>
+  clearAuthError: () => void
 }
 
 const PlannerContext = createContext<(PlannerState & PlannerActions) | null>(null)
@@ -80,6 +83,7 @@ function createInitialState(): PlannerState {
     user: null,
     isLoadingAuth: true,
     isSyncing: false,
+    authError: null,
   }
 }
 
@@ -353,11 +357,19 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = useCallback(async () => {
-    await signInWithGoogle()
+    setState((s) => ({ ...s, authError: null }))
+    const res = await signInWithGoogle()
+    if (res.error) {
+      setState((s) => ({ ...s, authError: res.error ?? null }))
+    }
   }, [])
 
   const logout = useCallback(async () => {
     await logoutUser()
+  }, [])
+
+  const clearAuthError = useCallback(() => {
+    setState((s) => ({ ...s, authError: null }))
   }, [])
 
   const value = useMemo(
@@ -374,6 +386,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       removeWeight,
       login,
       logout,
+      clearAuthError,
     }),
     [
       state,
@@ -388,6 +401,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       removeWeight,
       login,
       logout,
+      clearAuthError,
     ],
   )
 

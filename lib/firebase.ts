@@ -20,6 +20,7 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp()
 export const db: Firestore = getFirestore(app, firebaseConfig.firestoreDatabaseId)
 export const auth = getAuth(app)
 export const googleProvider = new GoogleAuthProvider()
+googleProvider.setCustomParameters({ prompt: 'select_account' })
 
 export async function testConnection() {
   try {
@@ -84,13 +85,45 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo))
 }
 
-export async function signInWithGoogle(): Promise<User | null> {
+export interface AuthErrorInfo {
+  code: string
+  message: string
+  isUnauthorizedDomain: boolean
+  isPopupBlocked: boolean
+  domain: string
+  projectId: string
+}
+
+export interface AuthResult {
+  user: User | null
+  error?: AuthErrorInfo | null
+}
+
+export async function signInWithGoogle(): Promise<AuthResult> {
   try {
     const result = await signInWithPopup(auth, googleProvider)
-    return result.user
-  } catch (error) {
-    console.error('Błąd logowania przez Google:', error)
-    return null
+    return { user: result.user, error: null }
+  } catch (err: unknown) {
+    const error = err as { code?: string; message?: string }
+    const code = error?.code || 'unknown'
+    const message = error?.message || String(err)
+    console.error('Błąd logowania przez Google:', code, message)
+
+    const isUnauthorizedDomain = code === 'auth/unauthorized-domain'
+    const isPopupBlocked = code === 'auth/popup-blocked'
+    const domain = typeof window !== 'undefined' ? window.location.hostname : ''
+
+    return {
+      user: null,
+      error: {
+        code,
+        message,
+        isUnauthorizedDomain,
+        isPopupBlocked,
+        domain,
+        projectId: firebaseConfig.projectId,
+      },
+    }
   }
 }
 
