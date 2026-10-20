@@ -1,11 +1,12 @@
 'use client'
 
 import { useId, useMemo, useState } from 'react'
-import { Plus, X } from 'lucide-react'
+import { Plus, Sparkles, X } from 'lucide-react'
 import { usePlanner } from '@/lib/store'
 import { MEAL_SLOTS } from '@/lib/nutrition'
 import type { Ingredient, MealSlot, Nutrition, Recipe } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { IngredientAutocomplete } from './ingredient-autocomplete'
 import {
   Dialog,
   DialogContent,
@@ -191,16 +192,18 @@ export function RecipeFormDialog({
           </fieldset>
 
           <fieldset className="space-y-2">
-            <legend className="text-sm font-medium">Składniki</legend>
-            <datalist id={`${formId}-known`}>
-              {knownNames.map((n) => (
-                <option key={n} value={n} />
-              ))}
-            </datalist>
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <legend className="text-sm font-medium">Składniki</legend>
+              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <Sparkles className="size-3 text-primary" />
+                Inteligentne podpowiedzi z bazy i API Open Food Facts
+              </span>
+            </div>
+
             <div className="hidden grid-cols-[minmax(0,1fr)_72px_64px_56px_56px_56px_32px] gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:grid">
-              <span>Nazwa</span>
+              <span>Nazwa składnika (wyszukaj z bazy/API)</span>
               <span>Ilość g</span>
-              <span>kcal</span>
+              <span>kcal/100g</span>
               <span>Białko</span>
               <span>Węgl.</span>
               <span>Tłuszcz</span>
@@ -212,14 +215,24 @@ export function RecipeFormDialog({
                   key={ing.id}
                   className="grid grid-cols-4 gap-2 rounded-lg border p-3 md:grid-cols-[minmax(0,1fr)_72px_64px_56px_56px_56px_32px] md:border-0 md:p-0"
                 >
-                  <Input
-                    aria-label={`Nazwa składnika ${idx + 1}`}
-                    list={`${formId}-known`}
-                    value={ing.name}
-                    onChange={(e) => updateIngredient(ing.id, { name: e.target.value })}
-                    placeholder="Składnik"
-                    className="col-span-3 md:col-span-1"
-                  />
+                  <div className="col-span-4 md:col-span-1">
+                    <IngredientAutocomplete
+                      value={ing.name}
+                      onChange={(newName) => updateIngredient(ing.id, { name: newName })}
+                      onSelectSuggestion={(suggestion) => {
+                        updateIngredient(ing.id, {
+                          name: suggestion.name,
+                          kcal: String(suggestion.per100g.kcal),
+                          protein: String(suggestion.per100g.protein),
+                          carbs: String(suggestion.per100g.carbs),
+                          fat: String(suggestion.per100g.fat),
+                        })
+                      }}
+                      userRecipes={recipes}
+                      placeholder="Wpisz np. kurczak, twaróg, banan…"
+                      ariaLabel={`Nazwa składnika ${idx + 1}`}
+                    />
+                  </div>
                   <Input
                     aria-label={`Ilość w gramach, składnik ${idx + 1}`}
                     inputMode="decimal"
@@ -245,7 +258,7 @@ export function RecipeFormDialog({
                     onClick={() => setIngredients((list) => list.filter((i) => i.id !== ing.id))}
                     aria-label={`Usuń składnik ${idx + 1}`}
                     disabled={ingredients.length === 1}
-                    className="col-start-4 row-start-1 justify-self-end md:col-auto md:row-auto"
+                    className="col-start-4 row-start-2 justify-self-end md:col-auto md:row-auto"
                   >
                     <X />
                   </Button>
