@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { ArrowRight, Flame, Minus, Plus, Scale, Sparkles } from 'lucide-react'
 import { formatNumber, mealNutrition } from '@/lib/nutrition'
 import type { PlannedMeal } from '@/lib/types'
@@ -34,6 +34,13 @@ export function ScaleMealDialog({
   const currentKcal = Math.round(currentNutrition.kcal)
   const [targetInput, setTargetInput] = useState<string>(String(currentKcal || 400))
   const inputId = useId()
+
+  // Reset input value whenever dialog opens or meal changes
+  useEffect(() => {
+    if (open) {
+      setTargetInput(String(currentKcal || 400))
+    }
+  }, [open, currentKcal])
 
   // Keep state synced with current meal when dialog opens
   const targetKcal = useMemo(() => {
