@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { SharePlanDialog } from '@/components/planner/share-plan-dialog'
+import { PWAInstallButton } from '@/components/pwa-install-button'
 
 const PRESETS: { label: string; protein: number; carbs: number; fat: number }[] = [
   { label: 'Zbilansowana', protein: 25, carbs: 50, fat: 25 },
@@ -242,6 +243,11 @@ export function SettingsView() {
           </div>
         </CardContent>
       </Card>
+
+      {/* PWA Phone Install Card */}
+      <div className="mt-6">
+        <PWAInstallButton variant="card" />
+      </div>
 
       <SharePlanDialog open={shareModalOpen} onOpenChange={setShareModalOpen} />
     </div>

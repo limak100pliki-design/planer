@@ -27,6 +27,8 @@ import { SettingsView } from '@/components/settings/settings-view'
 import { WeightView } from '@/components/weight/weight-view'
 import { ShoppingView } from '@/components/shopping/shopping-view'
 import { SharePlanDialog } from '@/components/planner/share-plan-dialog'
+import { PWAInstallButton } from '@/components/pwa-install-button'
+import { OfflineIndicator } from '@/components/offline-indicator'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -178,13 +180,21 @@ export function AppShell() {
               </Button>
             </div>
           )}
+
+          {/* PWA Phone Install Action in Sidebar */}
+          <div className="mt-2.5">
+            <PWAInstallButton variant="sidebar" />
+          </div>
         </div>
       </aside>
 
       {/* Mobile Top Header */}
       <header className="sticky top-0 z-30 flex items-center justify-between border-b bg-background/95 px-4 py-2.5 backdrop-blur lg:hidden">
         <Brand compact />
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* PWA Mobile Header Install Button */}
+          <PWAInstallButton variant="header" />
+
           {/* Mobile Share / Multi-account Button */}
           <Button
             variant="outline"
@@ -365,6 +375,9 @@ export function AppShell() {
 
       {/* Multi-Account Shared Plan Pairing Dialog */}
       <SharePlanDialog open={shareDialogOpen} onOpenChange={setShareDialogOpen} />
+
+      {/* Connectivity Status Indicator */}
+      <OfflineIndicator />
     </div>
   )
 }

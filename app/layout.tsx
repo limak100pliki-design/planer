@@ -16,13 +16,22 @@ export const metadata: Metadata = {
   description:
     'Planuj posiłki na cały tydzień, zarządzaj przepisami, kontroluj kalorie i makroskładniki, monitoruj wagę i generuj listę zakupów.',
   generator: 'v0.app',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Planer',
+  },
   icons: {
     icon: [
       { url: '/icon-light-32x32.png', media: '(prefers-color-scheme: light)' },
       { url: '/icon-dark-32x32.png', media: '(prefers-color-scheme: dark)' },
       { url: '/icon.svg', type: 'image/svg+xml' },
     ],
-    apple: '/apple-icon.png',
+    apple: [
+      { url: '/apple-touch-icon.png', sizes: '180x180' },
+      { url: '/apple-icon.png' },
+    ],
   },
 }
 
