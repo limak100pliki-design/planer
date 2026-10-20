@@ -267,6 +267,44 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe()
   }, [])
 
+  // Proactive Session Keep-Alive and Token Refresh
+  // Prevents premature logouts due to 1-hour token expiration, browser tab suspension,
+  // sleep mode wakeups, and network changes.
+  useEffect(() => {
+    const refreshAuthToken = async (force: boolean = false) => {
+      const currentUser = auth.currentUser
+      if (!currentUser) return
+      try {
+        await currentUser.getIdToken(force)
+      } catch (err) {
+        console.warn('[Firebase Auth] Cicha próba odświeżenia tokena sesji:', err)
+      }
+    }
+
+    // Refresh token every 20 minutes (well before the 60-minute token expiry) while page is open
+    const interval = setInterval(() => {
+      refreshAuthToken(true)
+    }, 20 * 60 * 1000)
+
+    // Re-verify session when tab becomes visible again, gains focus, or reconnects
+    const handleActivity = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        refreshAuthToken(false)
+      }
+    }
+
+    window.addEventListener('visibilitychange', handleActivity)
+    window.addEventListener('focus', handleActivity)
+    window.addEventListener('online', handleActivity)
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('visibilitychange', handleActivity)
+      window.removeEventListener('focus', handleActivity)
+      window.removeEventListener('online', handleActivity)
+    }
+  }, [])
+
   // Real-time synchronization for collaborative shared plan
   useEffect(() => {
     const activePlanId = state.activePlanId

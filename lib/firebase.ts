@@ -4,6 +4,9 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signOut,
+  setPersistence,
+  browserLocalPersistence,
+  indexedDBLocalPersistence,
   type User,
 } from 'firebase/auth'
 import {
@@ -19,6 +22,16 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp()
 // CRITICAL: Connect directly to the provisioned database ID
 export const db: Firestore = getFirestore(app, firebaseConfig.firestoreDatabaseId)
 export const auth = getAuth(app)
+
+// Enforce browserLocalPersistence (localStorage) so the session lasts indefinitely
+// across page refreshes, tab closures, and browser restarts.
+if (typeof window !== 'undefined') {
+  setPersistence(auth, browserLocalPersistence).catch((err) => {
+    console.warn('[Firebase Auth] Próba fallbacku do indexedDBLocalPersistence:', err)
+    setPersistence(auth, indexedDBLocalPersistence).catch(() => {})
+  })
+}
+
 export const googleProvider = new GoogleAuthProvider()
 googleProvider.setCustomParameters({ prompt: 'select_account' })
 
@@ -101,6 +114,17 @@ export interface AuthResult {
 
 export async function signInWithGoogle(): Promise<AuthResult> {
   try {
+    if (typeof window !== 'undefined') {
+      try {
+        await setPersistence(auth, browserLocalPersistence)
+      } catch {
+        try {
+          await setPersistence(auth, indexedDBLocalPersistence)
+        } catch {
+          // ignore fallback error
+        }
+      }
+    }
     const result = await signInWithPopup(auth, googleProvider)
     return { user: result.user, error: null }
   } catch (err: unknown) {
