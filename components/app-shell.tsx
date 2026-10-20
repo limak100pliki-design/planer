@@ -294,16 +294,15 @@ export function AppShell() {
 
           <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
             {authError?.isUnauthorizedDomain && (
-              <Button asChild variant="default" size="sm" className="gap-1.5">
-                <a
-                  href={`https://console.firebase.google.com/project/${authError.projectId}/authentication/settings`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <ExternalLink className="size-3.5" />
-                  Otwórz ustawienia Firebase
-                </a>
-              </Button>
+              <a
+                href={`https://console.firebase.google.com/project/${authError.projectId}/authentication/settings`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              >
+                <ExternalLink className="size-3.5" />
+                Otwórz ustawienia Firebase
+              </a>
             )}
             <Button variant="outline" size="sm" onClick={clearAuthError}>
               Zamknij

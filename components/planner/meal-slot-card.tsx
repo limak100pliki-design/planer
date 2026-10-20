@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Scale, Trash2 } from 'lucide-react'
 import { usePlanner } from '@/lib/store'
 import { formatNumber, mealNutrition, slotNutrition } from '@/lib/nutrition'
 import type { DateKey, MealSlot, PlannedMeal } from '@/lib/types'
@@ -11,6 +11,7 @@ import { MacroPills } from '@/components/shared'
 import { ExpandChevron, RecipeInstructions } from '@/components/recipe-instructions'
 import { IngredientRow } from './ingredient-row'
 import { AddMealDialog } from './add-meal-dialog'
+import { ScaleMealDialog } from './scale-meal-dialog'
 
 export function MealSlotCard({
   date,
@@ -64,8 +65,9 @@ export function MealSlotCard({
 }
 
 function PlannedMealItem({ date, slot, meal }: { date: DateKey; slot: MealSlot; meal: PlannedMeal }) {
-  const { recipes, removeMeal, updateIngredientGrams } = usePlanner()
+  const { recipes, removeMeal, updateIngredientGrams, scaleMealCalories } = usePlanner()
   const [expanded, setExpanded] = useState(false)
+  const [scaleDialogOpen, setScaleDialogOpen] = useState(false)
   const total = mealNutrition(meal)
   const description = recipes.find((r) => r.id === meal.recipeId)?.description
   const panelId = `instructions-${meal.id}`
@@ -84,17 +86,32 @@ function PlannedMealItem({ date, slot, meal }: { date: DateKey; slot: MealSlot; 
             <span className="text-pretty font-medium leading-snug">{meal.recipeName}</span>
             <ExpandChevron open={expanded} />
           </button>
-          <MacroPills nutrition={total} className="mt-1" />
+
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <MacroPills nutrition={total} />
+            <button
+              type="button"
+              onClick={() => setScaleDialogOpen(true)}
+              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/20 hover:border-primary/50"
+              title="Zmień kaloryczność posiłku — gramatury wszystkich składników przeliczą się w proporcji"
+            >
+              <Scale className="size-3" aria-hidden="true" />
+              Dopasuj kalorie
+            </button>
+          </div>
         </div>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => removeMeal(date, slot, meal.id)}
-          aria-label={`Usuń ${meal.recipeName}`}
-          className="text-muted-foreground hover:text-destructive"
-        >
-          <Trash2 />
-        </Button>
+
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => removeMeal(date, slot, meal.id)}
+            aria-label={`Usuń ${meal.recipeName}`}
+            className="text-muted-foreground hover:text-destructive"
+          >
+            <Trash2 />
+          </Button>
+        </div>
       </div>
 
       <RecipeInstructions
@@ -115,6 +132,7 @@ function PlannedMealItem({ date, slot, meal }: { date: DateKey; slot: MealSlot; 
         <span className="text-right">W</span>
         <span className="text-right">T</span>
       </div>
+
       <ul className="space-y-1.5">
         {meal.ingredients.map((ingredient) => (
           <IngredientRow
@@ -124,6 +142,14 @@ function PlannedMealItem({ date, slot, meal }: { date: DateKey; slot: MealSlot; 
           />
         ))}
       </ul>
+
+      {/* Proportional Scaling Dialog */}
+      <ScaleMealDialog
+        open={scaleDialogOpen}
+        onOpenChange={setScaleDialogOpen}
+        meal={meal}
+        onConfirmScale={(targetKcal) => scaleMealCalories(date, slot, meal.id, targetKcal)}
+      />
     </li>
   )
 }

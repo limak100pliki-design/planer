@@ -33,13 +33,16 @@ export function RecipeDetailDialog({
           <>
             <DialogHeader>
               <DialogTitle className="text-lg">{recipe.name}</DialogTitle>
-              <DialogDescription className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="inline-flex items-center gap-1">
-                  <Clock className="size-3.5" aria-hidden="true" />
+              <DialogDescription className="text-xs text-muted-foreground">
+                Szczegółowe wartości odżywcze, proporcje składników i opis przyrządzenia.
+              </DialogDescription>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                  <Clock className="size-3.5 text-muted-foreground" aria-hidden="true" />
                   {recipe.prepTimeMin} min
                 </span>
                 <MacroPills nutrition={ingredientsNutrition(recipe.ingredients)} />
-              </DialogDescription>
+              </div>
             </DialogHeader>
 
             <section aria-labelledby="skladniki">

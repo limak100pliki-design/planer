@@ -36,7 +36,7 @@ import {
   generateDummyWeights,
   plannedMealFromRecipe,
 } from './dummy-data'
-import { emptyDayPlan } from './nutrition'
+import { emptyDayPlan, mealNutrition } from './nutrition'
 import type { DateKey, DayPlan, Goals, MealSlot, Recipe, WeightEntry } from './types'
 
 interface PlannerState {
@@ -63,6 +63,7 @@ interface PlannerActions {
     ingredientId: string,
     grams: number,
   ) => void
+  scaleMealCalories: (date: DateKey, slot: MealSlot, mealId: string, targetKcal: number) => void
   setGoals: (goals: Goals) => void
   logWeight: (entry: WeightEntry) => void
   removeWeight: (date: DateKey) => void
@@ -314,6 +315,47 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     [updatePlan],
   )
 
+  const scaleMealCalories = useCallback(
+    (date: DateKey, slot: MealSlot, mealId: string, targetKcal: number) => {
+      const safeTarget = Number.isFinite(targetKcal) ? Math.max(10, Math.min(Math.round(targetKcal), 4000)) : 0
+      if (safeTarget <= 0) return
+
+      updatePlan(date, (plan) => {
+        const slotMeals = plan.meals[slot] || []
+        const meal = slotMeals.find((m) => m.id === mealId)
+        if (!meal || meal.ingredients.length === 0) return plan
+
+        const currentKcal = mealNutrition(meal).kcal
+        if (currentKcal <= 0) return plan
+
+        const ratio = safeTarget / currentKcal
+
+        const updatedMeals = slotMeals.map((m) => {
+          if (m.id !== mealId) return m
+          return {
+            ...m,
+            ingredients: m.ingredients.map((ing) => {
+              const scaledGrams = Math.max(1, Math.round(ing.grams * ratio))
+              return {
+                ...ing,
+                grams: Math.min(scaledGrams, 5000),
+              }
+            }),
+          }
+        })
+
+        return {
+          ...plan,
+          meals: {
+            ...plan.meals,
+            [slot]: updatedMeals,
+          },
+        }
+      })
+    },
+    [updatePlan],
+  )
+
   const setGoals = useCallback((goals: Goals) => {
     setState((s) => {
       const currentUser = auth.currentUser
@@ -381,6 +423,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       addMeal,
       removeMeal,
       updateIngredientGrams,
+      scaleMealCalories,
       setGoals,
       logWeight,
       removeWeight,
@@ -396,6 +439,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       addMeal,
       removeMeal,
       updateIngredientGrams,
+      scaleMealCalories,
       setGoals,
       logWeight,
       removeWeight,

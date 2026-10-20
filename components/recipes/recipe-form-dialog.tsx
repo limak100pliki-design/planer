@@ -192,13 +192,11 @@ export function RecipeFormDialog({
           </fieldset>
 
           <fieldset className="space-y-2">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <legend className="text-sm font-medium">Składniki</legend>
-              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                <Sparkles className="size-3 text-primary" />
-                Inteligentne podpowiedzi z bazy i API Open Food Facts
-              </span>
-            </div>
+            <legend className="text-sm font-medium">Składniki</legend>
+            <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+              <Sparkles className="size-3 text-primary" />
+              Inteligentne podpowiedzi z bazy i API Open Food Facts
+            </p>
 
             <div className="hidden grid-cols-[minmax(0,1fr)_72px_64px_56px_56px_56px_32px] gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:grid">
               <span>Nazwa składnika (wyszukaj z bazy/API)</span>
