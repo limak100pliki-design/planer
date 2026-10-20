@@ -2,11 +2,12 @@
   "entities": {
     "UserProfile": {
       "title": "UserProfile",
-      "description": "User profile with daily caloric and macronutrient goals",
+      "description": "User profile with daily caloric and macronutrient goals and active plan pointer",
       "type": "object",
       "properties": {
         "uid": { "type": "string", "maxLength": 128 },
         "displayName": { "type": "string", "maxLength": 128 },
+        "activePlanId": { "type": "string", "maxLength": 128 },
         "goals": {
           "type": "object",
           "properties": {
@@ -20,6 +21,37 @@
         }
       },
       "required": ["uid", "goals"]
+    },
+    "SharedPlan": {
+      "title": "SharedPlan",
+      "description": "Shared meal plan document allowing multi-account collaboration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "ownerName": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "members": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "shareCode": { "type": "string", "maxLength": 32 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "ownerId", "members"]
+    },
+    "ShareCode": {
+      "title": "ShareCode",
+      "description": "Code enabling other accounts to link to a shared plan",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 32 },
+        "planId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "ownerName": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["code", "planId", "ownerUid"]
     },
     "Recipe": {
       "title": "Recipe",
@@ -80,6 +112,22 @@
     "/users/{userId}/weightLogs/{date}": {
       "schema": { "$ref": "#/entities/WeightEntry" },
       "description": "Stores weight measurements for a specific date"
+    },
+    "/plans/{planId}": {
+      "schema": { "$ref": "#/entities/SharedPlan" },
+      "description": "Shared meal plan record allowing multi-user collaboration"
+    },
+    "/plans/{planId}/mealPlans/{date}": {
+      "schema": { "$ref": "#/entities/DayPlan" },
+      "description": "Shared daily meal plans for collaborative users"
+    },
+    "/plans/{planId}/recipes/{recipeId}": {
+      "schema": { "$ref": "#/entities/Recipe" },
+      "description": "Shared recipes for collaborative users"
+    },
+    "/shareCodes/{code}": {
+      "schema": { "$ref": "#/entities/ShareCode" },
+      "description": "Lookup registry for plan sharing invitation codes"
     }
   }
 }

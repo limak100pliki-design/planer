@@ -1,18 +1,23 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { Users } from 'lucide-react'
 import { usePlanner } from '@/lib/store'
 import { addDays, formatLongDate, startOfWeek, toDateKey } from '@/lib/date'
 import { emptyDayPlan, MEAL_SLOTS } from '@/lib/nutrition'
+import { cn } from '@/lib/utils'
 import { SectionHeader } from '@/components/shared'
+import { Button } from '@/components/ui/button'
 import { WeekSelector } from './week-selector'
 import { DayStrip } from './day-strip'
 import { DailySummary } from './daily-summary'
 import { MealSlotCard } from './meal-slot-card'
+import { SharePlanDialog } from './share-plan-dialog'
 
 export function MealPlanner() {
-  const { plans } = usePlanner()
+  const { plans, sharedPlanInfo } = usePlanner()
   const [selectedDate, setSelectedDate] = useState(() => new Date())
+  const [shareModalOpen, setShareModalOpen] = useState(false)
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate])
 
   const dateKey = toDateKey(selectedDate)
@@ -24,12 +29,30 @@ export function MealPlanner() {
         title="Planer Posiłków"
         description="Zaplanuj cztery posiłki dziennie i dopasuj gramaturę składników do swoich celów."
         actions={
-          <WeekSelector
-            weekStart={weekStart}
-            onPrev={() => setSelectedDate((d) => addDays(d, -7))}
-            onNext={() => setSelectedDate((d) => addDays(d, 7))}
-            onToday={() => setSelectedDate(new Date())}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShareModalOpen(true)}
+              className={cn(
+                'h-9 gap-1.5 text-xs font-medium shadow-2xs',
+                sharedPlanInfo?.isShared && 'border-primary/40 bg-primary/10 text-primary font-semibold',
+              )}
+            >
+              <Users className="size-3.5 text-primary" />
+              <span>
+                {sharedPlanInfo?.isShared
+                  ? `Wspólny plan (${sharedPlanInfo.membersCount} konta)`
+                  : 'Wspólny plan (Połącz konta)'}
+              </span>
+            </Button>
+            <WeekSelector
+              weekStart={weekStart}
+              onPrev={() => setSelectedDate((d) => addDays(d, -7))}
+              onNext={() => setSelectedDate((d) => addDays(d, 7))}
+              onToday={() => setSelectedDate(new Date())}
+            />
+          </div>
         }
       />
 
@@ -46,6 +69,8 @@ export function MealPlanner() {
           <MealSlotCard key={key} date={dateKey} slot={key} label={label} meals={plan.meals[key]} />
         ))}
       </div>
+
+      <SharePlanDialog open={shareModalOpen} onOpenChange={setShareModalOpen} />
     </div>
   )
 }

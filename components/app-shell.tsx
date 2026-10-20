@@ -17,6 +17,7 @@ import {
   ShoppingBasket,
   Target,
   UserCheck,
+  Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { usePlanner } from '@/lib/store'
@@ -25,6 +26,7 @@ import { RecipesView } from '@/components/recipes/recipes-view'
 import { SettingsView } from '@/components/settings/settings-view'
 import { WeightView } from '@/components/weight/weight-view'
 import { ShoppingView } from '@/components/shopping/shopping-view'
+import { SharePlanDialog } from '@/components/planner/share-plan-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -49,7 +51,8 @@ export function AppShell() {
   const [active, setActive] = useState<SectionId>('planer')
   const [mounted, setMounted] = useState(false)
   const [copiedDomain, setCopiedDomain] = useState(false)
-  const { user, login, logout, isLoadingAuth, isSyncing, authError, clearAuthError } = usePlanner()
+  const [shareDialogOpen, setShareDialogOpen] = useState(false)
+  const { user, login, logout, isLoadingAuth, isSyncing, authError, clearAuthError, sharedPlanInfo } = usePlanner()
 
   useEffect(() => {
     setMounted(true)
@@ -86,7 +89,7 @@ export function AppShell() {
         </nav>
 
         {/* User Account & Firebase Cloud Sync Box */}
-        <div className="mt-auto border-t p-3">
+        <div className="mt-auto border-t p-3 space-y-2">
           {isLoadingAuth ? (
             <div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin" />
@@ -116,30 +119,62 @@ export function AppShell() {
                   </p>
                 </div>
               </div>
+
+              {/* Multi-account Shared Plan Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShareDialogOpen(true)}
+                className={cn(
+                  'mt-2.5 h-7.5 w-full justify-start gap-1.5 text-xs font-medium border-primary/30 transition-colors',
+                  sharedPlanInfo?.isShared
+                    ? 'bg-primary/10 text-primary font-semibold hover:bg-primary/20'
+                    : 'text-foreground hover:bg-muted',
+                )}
+              >
+                <Users className="size-3.5 text-primary shrink-0" />
+                <span className="truncate">
+                  {sharedPlanInfo?.isShared
+                    ? `Wspólny plan (${sharedPlanInfo.membersCount} konta)`
+                    : 'Połącz z innym kontem'}
+                </span>
+              </Button>
+
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={logout}
-                className="mt-2.5 h-7 w-full justify-start text-xs text-muted-foreground hover:text-destructive"
+                className="mt-1 h-7 w-full justify-start text-xs text-muted-foreground hover:text-destructive"
               >
                 <LogOut className="size-3.5" data-icon="inline-start" />
                 Wyloguj się
               </Button>
             </div>
           ) : (
-            <div className="rounded-xl border border-border/80 bg-muted/40 p-3">
-              <p className="text-xs font-medium text-foreground">Synchronizacja w chmurze</p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                Zaloguj się kontem Google, aby zapisać dane w Firestore (tryb oszczędzania limitów).
-              </p>
+            <div className="rounded-xl border border-border/80 bg-muted/40 p-3 space-y-2">
+              <div>
+                <p className="text-xs font-medium text-foreground">Synchronizacja w chmurze</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground leading-tight">
+                  Zaloguj się kontem Google, aby współdzielić plan na wielu kontach i urządzeniach.
+                </p>
+              </div>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={login}
-                className="mt-2.5 h-8 w-full gap-1.5 text-xs font-medium"
+                className="h-8 w-full gap-1.5 text-xs font-medium"
               >
                 <LogIn className="size-3.5" />
                 Zaloguj przez Google
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShareDialogOpen(true)}
+                className="h-6 w-full justify-center gap-1.5 px-1 text-[11px] text-muted-foreground hover:text-foreground"
+              >
+                <Users className="size-3 text-muted-foreground" />
+                <span>Wspólny plan dla 2+ kont</span>
               </Button>
             </div>
           )}
@@ -150,6 +185,23 @@ export function AppShell() {
       <header className="sticky top-0 z-30 flex items-center justify-between border-b bg-background/95 px-4 py-2.5 backdrop-blur lg:hidden">
         <Brand compact />
         <div className="flex items-center gap-2">
+          {/* Mobile Share / Multi-account Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShareDialogOpen(true)}
+            className={cn(
+              'h-7 gap-1 px-2 text-xs',
+              sharedPlanInfo?.isShared && 'border-primary/40 bg-primary/10 text-primary font-semibold',
+            )}
+            title="Wspólny plan dla wielu kont"
+          >
+            <Users className="size-3 text-primary" />
+            <span className="text-[11px] font-medium">
+              {sharedPlanInfo?.isShared ? `Plan (${sharedPlanInfo.membersCount})` : 'Połącz'}
+            </span>
+          </Button>
+
           {user ? (
             <button
               type="button"
@@ -310,6 +362,9 @@ export function AppShell() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Multi-Account Shared Plan Pairing Dialog */}
+      <SharePlanDialog open={shareDialogOpen} onOpenChange={setShareDialogOpen} />
     </div>
   )
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useId, useState } from 'react'
-import { Check } from 'lucide-react'
+import { Check, Users } from 'lucide-react'
 import { usePlanner } from '@/lib/store'
 import { formatNumber, goalsInGrams } from '@/lib/nutrition'
 import type { Goals } from '@/lib/types'
@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { SharePlanDialog } from '@/components/planner/share-plan-dialog'
 
 const PRESETS: { label: string; protein: number; carbs: number; fat: number }[] = [
   { label: 'Zbilansowana', protein: 25, carbs: 50, fat: 25 },
@@ -26,9 +28,10 @@ const MACROS = [
 ] as const
 
 export function SettingsView() {
-  const { goals, setGoals } = usePlanner()
+  const { goals, setGoals, sharedPlanInfo } = usePlanner()
   const [draft, setDraft] = useState<Goals>(goals)
   const [saved, setSaved] = useState(false)
+  const [shareModalOpen, setShareModalOpen] = useState(false)
   const id = useId()
 
   const pctSum = draft.proteinPct + draft.carbsPct + draft.fatPct
@@ -196,6 +199,51 @@ export function SettingsView() {
           </Button>
         </div>
       </form>
+
+      {/* Multi-Account Shared Plan Card */}
+      <Card className="mt-8 border-primary/20 bg-card">
+        <CardHeader className="sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="space-y-1">
+            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <Users className="size-5 text-primary" />
+              Współdzielenie Planu i Łączenie Kont
+            </CardTitle>
+            <CardDescription>
+              Możesz zalogować się na 2 lub więcej kont Google i korzystać z dokładnie jednego wspólnego planu.
+            </CardDescription>
+          </div>
+          <Badge
+            variant={sharedPlanInfo?.isShared ? 'default' : 'secondary'}
+            className="w-fit text-xs font-medium"
+          >
+            {sharedPlanInfo?.isShared
+              ? `Wspólny plan (${sharedPlanInfo.membersCount} konta)`
+              : 'Indywidualny plan'}
+          </Badge>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground leading-relaxed sm:text-sm">
+            Idealne rozwiązanie dla par, rodzin lub osób korzystających z kilku urządzeń (np. telefon i komputer).
+            Wystarczy wygenerować kod parowania na jednym koncie, a na drugim wpisać go, aby oba konta natychmiast widziały i wspólnie edytowały te same posiłki, przepisy oraz listę zakupów.
+          </p>
+
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShareModalOpen(true)}
+              className="gap-2 text-xs font-medium"
+            >
+              <Users className="size-4 text-primary" />
+              {sharedPlanInfo?.isShared
+                ? 'Zarządzaj wspólnym planem i kodem'
+                : 'Połącz z innym kontem / Wygeneruj kod'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <SharePlanDialog open={shareModalOpen} onOpenChange={setShareModalOpen} />
     </div>
   )
 }

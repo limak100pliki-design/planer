@@ -1,10 +1,14 @@
 /**
  * Data model mirrors the planned Firestore structure:
  *
- *   users/{uid}                          -> UserProfile (goals)
+ *   users/{uid}                          -> UserProfile (goals, activePlanId)
  *   users/{uid}/recipes/{recipeId}       -> Recipe
  *   users/{uid}/mealPlans/{YYYY-MM-DD}   -> DayPlan
  *   users/{uid}/weightLogs/{YYYY-MM-DD}  -> WeightEntry
+ *   plans/{planId}                       -> SharedPlan
+ *   plans/{planId}/recipes/{recipeId}    -> Recipe
+ *   plans/{planId}/mealPlans/{YYYY-MM-DD}-> DayPlan
+ *   shareCodes/{code}                    -> ShareCode
  *
  * Planned meals store a snapshot of the recipe ingredients so that
  * per-day gram adjustments never mutate the source recipe.
@@ -69,5 +73,16 @@ export interface WeightEntry {
 export interface UserProfile {
   uid: string
   displayName: string
+  activePlanId?: string
   goals: Goals
+}
+
+export interface SharedPlanInfo {
+  planId: string
+  isShared: boolean
+  shareCode?: string
+  ownerId: string
+  ownerName?: string
+  membersCount: number
+  isOwner: boolean
 }
