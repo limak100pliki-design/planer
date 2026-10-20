@@ -10,6 +10,7 @@ import {
   Search,
   Sparkles,
   Tag,
+  Upload,
   Utensils,
   X,
 } from 'lucide-react'
@@ -25,6 +26,7 @@ import { ExpandChevron, RecipeInstructions } from '@/components/recipe-instructi
 import { cn } from '@/lib/utils'
 import { RecipeDetailDialog } from './recipe-detail-dialog'
 import { RecipeFormDialog } from './recipe-form-dialog'
+import { ImportRecipesDialog } from './import-recipes-dialog'
 
 function normalizeText(text: string): string {
   return text
@@ -46,6 +48,7 @@ export function RecipesView() {
   const [onlyFavorites, setOnlyFavorites] = useState(false)
   const [viewingId, setViewingId] = useState<string | null>(null)
   const [editing, setEditing] = useState<Recipe | null | 'new'>(null)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
 
   const favoritesCount = recipes.filter((r) => r.czyUlubiony).length
 
@@ -127,10 +130,20 @@ export function RecipesView() {
         title="Moje Przepisy"
         description="Baza Twoich przepisów z wartościami odżywczymi, składnikami i opisem przyrządzenia."
         actions={
-          <Button onClick={() => setEditing('new')}>
-            <Plus data-icon="inline-start" />
-            Nowy przepis
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setImportDialogOpen(true)}
+              className="gap-1.5 text-xs shadow-2xs"
+            >
+              <Upload className="size-3.5" />
+              Importuj JSON
+            </Button>
+            <Button onClick={() => setEditing('new')} className="gap-1.5 text-xs font-semibold shadow-2xs">
+              <Plus className="size-3.5" />
+              Nowy przepis
+            </Button>
+          </div>
         }
       />
 
@@ -342,6 +355,10 @@ export function RecipesView() {
         open={editing !== null}
         recipe={editing === 'new' ? null : editing}
         onOpenChange={(open) => !open && setEditing(null)}
+      />
+      <ImportRecipesDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
       />
     </div>
   )

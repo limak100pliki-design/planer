@@ -79,6 +79,7 @@ interface PlannerActions {
   createOrGetShareCode: () => Promise<string>
   joinSharedPlanWithCode: (code: string) => Promise<{ success: boolean; error?: string }>
   leaveSharedPlan: () => Promise<void>
+  importRecipesBulk: (importedRecipes: Recipe[]) => Promise<{ count: number }>
 }
 
 const PlannerContext = createContext<(PlannerState & PlannerActions) | null>(null)
@@ -419,6 +420,59 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         }
         return { ...s, recipes: s.recipes.filter((r) => r.id !== recipeId) }
       })
+    },
+    [],
+  )
+
+  const importRecipesBulk = useCallback(
+    async (importedRecipes: Recipe[]): Promise<{ count: number }> => {
+      const sanitized: Recipe[] = importedRecipes.map((r, index) => ({
+        id: r.id && r.id.trim() ? r.id.trim() : `recipe-${Date.now()}-${index}`,
+        name: r.name || 'Bez nazwy',
+        description: r.description || '',
+        prepTimeMin: typeof r.prepTimeMin === 'number' && r.prepTimeMin > 0 ? r.prepTimeMin : 20,
+        mealTypes: Array.isArray(r.mealTypes) && r.mealTypes.length > 0 ? r.mealTypes : ['obiad'],
+        pochodzenie: r.pochodzenie || 'Import JSON',
+        czyUlubiony: false, // Ensure imported recipes start as not favorite
+        createdAt: r.createdAt || new Date().toISOString(),
+        ingredients: Array.isArray(r.ingredients)
+          ? r.ingredients.map((ing, iIdx) => ({
+              id: ing.id && ing.id.trim() ? ing.id.trim() : `ing-${Date.now()}-${index}-${iIdx}`,
+              name: ing.name || 'Składnik',
+              grams: typeof ing.grams === 'number' && ing.grams > 0 ? ing.grams : 100,
+              per100g: {
+                kcal: Number(ing.per100g?.kcal) || 0,
+                protein: Number(ing.per100g?.protein) || 0,
+                carbs: Number(ing.per100g?.carbs) || 0,
+                fat: Number(ing.per100g?.fat) || 0,
+              },
+            }))
+          : [],
+      }))
+
+      setState((s) => {
+        const existingIds = new Set(s.recipes.map((r) => r.id))
+        const newOnes = sanitized.filter((r) => !existingIds.has(r.id))
+        const updated = s.recipes.map((r) => {
+          const match = sanitized.find((sr) => sr.id === r.id)
+          return match || r
+        })
+        const combined = [...sanitized, ...s.recipes.filter((r) => !sanitized.some((sr) => sr.id === r.id))]
+
+        const currentUser = auth.currentUser
+        if (currentUser) {
+          const targetPlanId = s.activePlanId || currentUser.uid
+          for (const r of sanitized) {
+            setDoc(doc(db, 'plans', targetPlanId, 'recipes', r.id), r).catch((err) =>
+              handleFirestoreError(err, OperationType.WRITE, `plans/${targetPlanId}/recipes/${r.id}`),
+            )
+          }
+        }
+
+        return { ...s, recipes: combined }
+      })
+
+      return { count: sanitized.length }
     },
     [],
   )
@@ -842,6 +896,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       createOrGetShareCode,
       joinSharedPlanWithCode,
       leaveSharedPlan,
+      importRecipesBulk,
     }),
     [
       state,
@@ -861,6 +916,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       createOrGetShareCode,
       joinSharedPlanWithCode,
       leaveSharedPlan,
+      importRecipesBulk,
     ],
   )
 
