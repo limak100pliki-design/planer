@@ -1,7 +1,7 @@
 'use client'
 
-import { useId, useState } from 'react'
-import { Check, Users } from 'lucide-react'
+import { useEffect, useId, useState } from 'react'
+import { Check, User, Users } from 'lucide-react'
 import { usePlanner } from '@/lib/store'
 import { formatNumber, goalsInGrams } from '@/lib/nutrition'
 import type { Goals } from '@/lib/types'
@@ -29,11 +29,25 @@ const MACROS = [
 ] as const
 
 export function SettingsView() {
-  const { goals, setGoals, sharedPlanInfo } = usePlanner()
+  const {
+    goals,
+    setGoals,
+    sharedPlanInfo,
+    planMembers,
+    selectedWeightAccountUid,
+    setSelectedWeightAccountUid,
+    activeMember,
+  } = usePlanner()
   const [draft, setDraft] = useState<Goals>(goals)
   const [saved, setSaved] = useState(false)
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const id = useId()
+
+  // Keep draft in sync if user changes selected account
+  useEffect(() => {
+    setDraft(goals)
+    setSaved(false)
+  }, [goals])
 
   const pctSum = draft.proteinPct + draft.carbsPct + draft.fatPct
   const valid = pctSum === 100 && draft.kcal >= 800 && draft.kcal <= 6000
@@ -49,8 +63,66 @@ export function SettingsView() {
     <div>
       <SectionHeader
         title="Cele i Parametry"
-        description="Ustaw dzienne zapotrzebowanie kaloryczne i rozkład makroskładników."
+        description="Ustaw dzienne zapotrzebowanie kaloryczne, rozkład makroskładników oraz docelową wagę."
       />
+
+      {/* Account Switcher for Goals & Measurements on Shared Account */}
+      {(sharedPlanInfo?.isShared || planMembers.length > 1) && (
+        <div className="mb-6 rounded-2xl border border-primary/25 bg-card/90 p-4 shadow-xs backdrop-blur">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Users className="size-4.5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Konto dla celów dietetycznych i wagowych
+                  </span>
+                  <Badge variant="outline" className="text-[10px] border-primary/30 text-primary px-1.5 py-0">
+                    Konto współdzielone
+                  </Badge>
+                </div>
+                <p className="text-xs sm:text-sm text-foreground font-medium">
+                  Konfigurujesz cele i wskaźniki dla:{' '}
+                  <span className="font-bold text-primary">
+                    {activeMember?.displayName || 'Wybrane konto'}
+                  </span>
+                  {activeMember?.isCurrent && (
+                    <span className="ml-1 text-xs text-muted-foreground font-normal">(Ty)</span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-border/80 bg-muted/40 p-1">
+              {planMembers.map((member) => {
+                const isSelected = member.uid === selectedWeightAccountUid
+                return (
+                  <button
+                    key={member.uid}
+                    type="button"
+                    onClick={() => setSelectedWeightAccountUid(member.uid)}
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all',
+                      isSelected
+                        ? 'bg-background text-primary shadow-xs font-semibold ring-1 ring-border/50'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-background/50',
+                    )}
+                  >
+                    <User className="size-3.5" />
+                    <span>{member.displayName}</span>
+                    {member.isCurrent && (
+                      <span className="text-[10px] opacity-75 font-normal">(Ty)</span>
+                    )}
+                    {isSelected && <Check className="size-3 text-primary ml-0.5" />}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       <form
         onSubmit={(e) => {
@@ -227,6 +299,57 @@ export function SettingsView() {
             Idealne rozwiązanie dla par, rodzin lub osób korzystających z kilku urządzeń (np. telefon i komputer).
             Wystarczy wygenerować kod parowania na jednym koncie, a na drugim wpisać go, aby oba konta natychmiast widziały i wspólnie edytowały te same posiłki, przepisy oraz listę zakupów.
           </p>
+
+          {(sharedPlanInfo?.isShared || planMembers.length > 1) && (
+            <div className="rounded-xl border border-border/80 bg-muted/30 p-3.5 space-y-2.5">
+              <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Users className="size-3.5 text-primary" />
+                Połączone profile w tym planie:
+              </span>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {planMembers.map((member) => {
+                  const isSelected = member.uid === selectedWeightAccountUid
+                  return (
+                    <div
+                      key={member.uid}
+                      className={cn(
+                        'flex items-center justify-between rounded-lg border p-2.5 text-xs transition-colors',
+                        isSelected ? 'border-primary/40 bg-primary/5' : 'border-border/60 bg-background',
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-primary">
+                          <User className="size-3.5" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-foreground">{member.displayName}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {member.isOwner ? 'Właściciel planu' : 'Członek planu'}
+                            {member.isCurrent && ' · Twoje konto'}
+                          </p>
+                        </div>
+                      </div>
+                      {isSelected ? (
+                        <Badge variant="default" className="text-[10px] py-0.5 px-2">
+                          Aktywny
+                        </Badge>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSelectedWeightAccountUid(member.uid)}
+                          className="h-7 text-xs px-2.5 text-primary border-primary/30"
+                        >
+                          Wybierz
+                        </Button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <Button

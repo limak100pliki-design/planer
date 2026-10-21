@@ -9,11 +9,14 @@ import {
   LogIn,
   LogOut,
   QrCode,
+  Scale,
   Share2,
   Sparkles,
+  User,
   Users,
 } from 'lucide-react'
 import { usePlanner } from '@/lib/store'
+import { cn } from '@/lib/utils'
 import {
   Dialog,
   DialogContent,
@@ -35,6 +38,10 @@ export function SharePlanDialog({ open, onOpenChange }: SharePlanDialogProps) {
   const {
     user,
     sharedPlanInfo,
+    planMembers,
+    selectedWeightAccountUid,
+    setSelectedWeightAccountUid,
+    activeMember,
     login,
     createOrGetShareCode,
     joinSharedPlanWithCode,
@@ -159,6 +166,80 @@ export function SharePlanDialog({ open, onOpenChange }: SharePlanDialogProps) {
                 {sharedPlanInfo?.isShared ? 'Współdzielony' : 'Indywidualny'}
               </Badge>
             </div>
+
+            {/* Section: Measurement & Goal Data Source Selection */}
+            {(sharedPlanInfo?.isShared || planMembers.length > 1) && (
+              <div className="rounded-2xl border border-primary/25 bg-primary/5 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Scale className="size-4 text-primary" />
+                    <h4 className="text-sm font-semibold text-foreground">
+                      Pomiary i cele wagi (wybór konta)
+                    </h4>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] text-primary border-primary/30">
+                    Aktywne konto
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Posiłki i zakupy są wspólne, a waga, talia, biodra i cele należą do wybranej osoby. Wskaż, z którego konta chcesz w tej chwili pobierać dane pomiarów:
+                </p>
+
+                <div className="space-y-1.5 pt-1">
+                  {planMembers.map((member) => {
+                    const isSelected = member.uid === selectedWeightAccountUid
+                    return (
+                      <button
+                        key={member.uid}
+                        type="button"
+                        onClick={() => setSelectedWeightAccountUid(member.uid)}
+                        className={cn(
+                          'flex w-full items-center justify-between rounded-xl border p-2.5 text-xs transition-all text-left',
+                          isSelected
+                            ? 'border-primary bg-background shadow-xs font-semibold ring-1 ring-primary/40'
+                            : 'border-border/70 bg-card hover:bg-muted/50 text-foreground',
+                        )}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div
+                            className={cn(
+                              'flex size-7 items-center justify-center rounded-full text-xs font-semibold',
+                              isSelected
+                                ? 'bg-primary text-primary-foreground'
+                                : 'bg-muted text-muted-foreground',
+                            )}
+                          >
+                            <User className="size-3.5" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium text-foreground">{member.displayName}</span>
+                              {member.isCurrent && (
+                                <Badge variant="secondary" className="text-[10px] py-0 px-1 font-normal">
+                                  Twoje konto
+                                </Badge>
+                              )}
+                              {member.isOwner && (
+                                <span className="text-[10px] text-muted-foreground">· Właściciel</span>
+                              )}
+                            </div>
+                            {member.email && (
+                              <p className="text-[11px] text-muted-foreground">{member.email}</p>
+                            )}
+                          </div>
+                        </div>
+                        {isSelected && (
+                          <div className="flex items-center gap-1 text-[11px] font-semibold text-primary">
+                            <Check className="size-3.5" />
+                            <span>Pobieraj z tego konta</span>
+                          </div>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Section 1: Share Your Plan Code */}
             <div className="rounded-2xl border border-border/80 bg-card p-4 space-y-3">

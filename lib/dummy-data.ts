@@ -178,13 +178,25 @@ export const DUMMY_RECIPES: Recipe[] = [
 
 export const DUMMY_PROFILE: UserProfile = {
   uid: 'demo-user',
-  displayName: 'Anna',
+  displayName: 'Anna (Ty)',
   goals: {
     kcal: 2100,
     proteinPct: 25,
     carbsPct: 50,
     fatPct: 25,
     targetWeightKg: 76,
+  },
+}
+
+export const DUMMY_PARTNER_PROFILE: UserProfile = {
+  uid: 'demo-partner',
+  displayName: 'Piotr (Partner)',
+  goals: {
+    kcal: 2550,
+    proteinPct: 30,
+    carbsPct: 45,
+    fatPct: 25,
+    targetWeightKg: 84,
   },
 }
 
@@ -239,6 +251,26 @@ export function generateDummyWeights(today: Date): WeightEntry[] {
     const weight = 82.6 - progress * 2.4 + noise[i % noise.length]
     const waist = 88.5 - progress * 3.2 + noise[(i + 2) % noise.length]
     const hips = 103.0 - progress * 2.5 + noise[(i + 4) % noise.length]
+    entries.push({
+      date: toDateKey(addDays(today, -daysAgo)),
+      weightKg: Math.round(weight * 10) / 10,
+      waistCm: Math.round(waist * 10) / 10,
+      hipsCm: Math.round(hips * 10) / 10,
+    })
+    i++
+  }
+  return entries
+}
+
+export function generateDummyPartnerWeights(today: Date): WeightEntry[] {
+  const entries: WeightEntry[] = []
+  const noise = [-0.2, 0.1, -0.1, 0.3, -0.3, 0.2, -0.1, 0.15, -0.05, 0.1]
+  let i = 0
+  for (let daysAgo = 42; daysAgo >= 0; daysAgo -= 3) {
+    const progress = (42 - daysAgo) / 42
+    const weight = 92.4 - progress * 3.6 + noise[i % noise.length]
+    const waist = 96.0 - progress * 4.2 + noise[(i + 2) % noise.length]
+    const hips = 105.5 - progress * 2.8 + noise[(i + 4) % noise.length]
     entries.push({
       date: toDateKey(addDays(today, -daysAgo)),
       weightKg: Math.round(weight * 10) / 10,

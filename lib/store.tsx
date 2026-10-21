@@ -34,14 +34,42 @@ import {
   type AuthErrorInfo,
 } from './firebase'
 import {
+  DUMMY_PARTNER_PROFILE,
   DUMMY_PROFILE,
   DUMMY_RECIPES,
+  generateDummyPartnerWeights,
   generateDummyPlans,
   generateDummyWeights,
   plannedMealFromRecipe,
 } from './dummy-data'
 import { emptyDayPlan, mealNutrition } from './nutrition'
-import type { DateKey, DayPlan, Goals, MealSlot, Recipe, SharedPlanInfo, WeightEntry } from './types'
+import type {
+  DateKey,
+  DayPlan,
+  Goals,
+  MealSlot,
+  PlanMemberInfo,
+  Recipe,
+  SharedPlanInfo,
+  WeightEntry,
+} from './types'
+
+export const DEMO_MEMBERS: PlanMemberInfo[] = [
+  {
+    uid: 'demo-user',
+    displayName: 'Anna (Ty)',
+    isCurrent: true,
+    isOwner: true,
+    goals: DUMMY_PROFILE.goals,
+  },
+  {
+    uid: 'demo-partner',
+    displayName: 'Piotr (Partner)',
+    isCurrent: false,
+    isOwner: false,
+    goals: DUMMY_PARTNER_PROFILE.goals,
+  },
+]
 
 interface PlannerState {
   recipes: Recipe[]
@@ -70,9 +98,9 @@ interface PlannerActions {
     grams: number,
   ) => void
   scaleMealCalories: (date: DateKey, slot: MealSlot, mealId: string, targetKcal: number) => void
-  setGoals: (goals: Goals) => void
-  logWeight: (entry: WeightEntry) => void
-  removeWeight: (date: DateKey) => void
+  setGoals: (goals: Goals, targetUid?: string) => void
+  logWeight: (entry: WeightEntry, targetUid?: string) => void
+  removeWeight: (date: DateKey, targetUid?: string) => void
   login: () => Promise<void>
   logout: () => Promise<void>
   clearAuthError: () => void
@@ -80,6 +108,10 @@ interface PlannerActions {
   joinSharedPlanWithCode: (code: string) => Promise<{ success: boolean; error?: string }>
   leaveSharedPlan: () => Promise<void>
   importRecipesBulk: (importedRecipes: Recipe[]) => Promise<{ count: number }>
+  setSelectedWeightAccountUid: (uid: string) => void
+  selectedWeightAccountUid: string
+  planMembers: PlanMemberInfo[]
+  activeMember: PlanMemberInfo | null
 }
 
 const PlannerContext = createContext<(PlannerState & PlannerActions) | null>(null)
@@ -95,14 +127,43 @@ function createInitialState(): PlannerState {
     isLoadingAuth: true,
     isSyncing: false,
     authError: null,
-    activePlanId: null,
-    sharedPlanInfo: null,
+    activePlanId: 'demo-shared-plan',
+    sharedPlanInfo: {
+      planId: 'demo-shared-plan',
+      isShared: true,
+      shareCode: 'TAL-7824',
+      ownerId: 'demo-user',
+      ownerName: 'Anna',
+      membersCount: 2,
+      isOwner: true,
+      members: DEMO_MEMBERS,
+    },
   }
 }
 
 export function PlannerProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<PlannerState>(createInitialState)
   const debounceTimers = useRef<Map<string, NodeJS.Timeout>>(new Map())
+
+  // Multi-account selected data source for measurements and goals
+  const [selectedWeightAccountUid, setSelectedWeightAccountUidState] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return localStorage.getItem('planer_weight_account_uid')
+      } catch {
+        return null
+      }
+    }
+    return null
+  })
+
+  // Cache for multi-account goals and weights (for partner or demo accounts)
+  const [partnerGoals, setPartnerGoals] = useState<Record<string, Goals>>({
+    'demo-partner': DUMMY_PARTNER_PROFILE.goals,
+  })
+  const [partnerWeights, setPartnerWeights] = useState<Record<string, WeightEntry[]>>({
+    'demo-partner': generateDummyPartnerWeights(new Date()),
+  })
 
   // Initial connection test
   useEffect(() => {
@@ -118,8 +179,17 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
           user: null,
           isLoadingAuth: false,
           isSyncing: false,
-          activePlanId: null,
-          sharedPlanInfo: null,
+          activePlanId: 'demo-shared-plan',
+          sharedPlanInfo: {
+            planId: 'demo-shared-plan',
+            isShared: true,
+            shareCode: 'TAL-7824',
+            ownerId: 'demo-user',
+            ownerName: 'Anna',
+            membersCount: 2,
+            isOwner: true,
+            members: DEMO_MEMBERS,
+          },
         }))
         return
       }
@@ -155,6 +225,16 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         // Check shared plan document
         const planDocRef = doc(db, 'plans', targetPlanId)
         const planDoc = await getDoc(planDocRef)
+
+        const myProfile: PlanMemberInfo = {
+          uid: currentUser.uid,
+          displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'Moje konto',
+          email: currentUser.email || undefined,
+          photoURL: currentUser.photoURL || undefined,
+          isOwner: true,
+          isCurrent: true,
+        }
+
         let planInfo: SharedPlanInfo = {
           planId: targetPlanId,
           isShared: false,
@@ -162,11 +242,51 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
           ownerName: currentUser.displayName || 'Główny profil',
           membersCount: 1,
           isOwner: true,
+          members: [myProfile],
         }
 
         if (planDoc.exists()) {
           const planData = planDoc.data()
-          const membersList = planData.members || [planData.ownerId || currentUser.uid]
+          const membersList: string[] = planData.members || [planData.ownerId || currentUser.uid]
+          const detailsMap = (planData.memberDetails || {}) as Record<
+            string,
+            { displayName?: string; email?: string; photoURL?: string }
+          >
+
+          // Ensure current user is recorded in plan memberDetails
+          await setDoc(
+            planDocRef,
+            {
+              memberDetails: {
+                [currentUser.uid]: {
+                  uid: currentUser.uid,
+                  displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'Moje konto',
+                  email: currentUser.email || '',
+                  photoURL: currentUser.photoURL || '',
+                },
+              },
+            },
+            { merge: true },
+          )
+
+          const members: PlanMemberInfo[] = membersList.map((uid) => {
+            const d = detailsMap[uid]
+            return {
+              uid,
+              displayName:
+                d?.displayName ||
+                (uid === currentUser.uid
+                  ? currentUser.displayName || 'Moje konto'
+                  : uid === planData.ownerId
+                    ? planData.ownerName || 'Współdzielone konto'
+                    : `Konto (${uid.slice(0, 5)})`),
+              email: d?.email || (uid === currentUser.uid ? currentUser.email || undefined : undefined),
+              photoURL: d?.photoURL || (uid === currentUser.uid ? currentUser.photoURL || undefined : undefined),
+              isOwner: uid === (planData.ownerId || currentUser.uid),
+              isCurrent: uid === currentUser.uid,
+            }
+          })
+
           planInfo = {
             planId: targetPlanId,
             isShared: membersList.length > 1,
@@ -175,6 +295,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
             ownerName: planData.ownerName || 'Współdzielony plan',
             membersCount: membersList.length,
             isOwner: planData.ownerId === currentUser.uid || targetPlanId === currentUser.uid,
+            members,
           }
         } else {
           // Bootstrap plan record
@@ -185,6 +306,14 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
               ownerId: currentUser.uid,
               ownerName: currentUser.displayName || 'Główny profil',
               members: [currentUser.uid],
+              memberDetails: {
+                [currentUser.uid]: {
+                  uid: currentUser.uid,
+                  displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'Główny profil',
+                  email: currentUser.email || '',
+                  photoURL: currentUser.photoURL || '',
+                },
+              },
               createdAt: new Date().toISOString(),
             },
             { merge: true },
@@ -311,7 +440,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     const currentUser = state.user
     if (!currentUser || !activePlanId) return
 
-    // 1. Listen to shared plan metadata (members count, share code, etc.)
+    // 1. Listen to shared plan metadata (members count, share code, member details, etc.)
     const planDocRef = doc(db, 'plans', activePlanId)
     const unsubPlan = onSnapshot(
       planDocRef,
@@ -319,6 +448,29 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         if (!snap.exists()) return
         const planData = snap.data()
         const membersList: string[] = planData.members || [planData.ownerId || currentUser.uid]
+        const detailsMap = (planData.memberDetails || {}) as Record<
+          string,
+          { displayName?: string; email?: string; photoURL?: string }
+        >
+
+        const members: PlanMemberInfo[] = membersList.map((mUid) => {
+          const d = detailsMap[mUid]
+          return {
+            uid: mUid,
+            displayName:
+              d?.displayName ||
+              (mUid === currentUser.uid
+                ? currentUser.displayName || 'Moje konto'
+                : mUid === planData.ownerId
+                  ? planData.ownerName || 'Współdzielone konto'
+                  : `Konto (${mUid.slice(0, 5)})`),
+            email: d?.email || (mUid === currentUser.uid ? currentUser.email || undefined : undefined),
+            photoURL: d?.photoURL || (mUid === currentUser.uid ? currentUser.photoURL || undefined : undefined),
+            isOwner: mUid === (planData.ownerId || currentUser.uid),
+            isCurrent: mUid === currentUser.uid,
+          }
+        })
+
         setState((s) => ({
           ...s,
           sharedPlanInfo: {
@@ -329,6 +481,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
             ownerName: planData.ownerName || 'Współdzielony plan',
             membersCount: membersList.length,
             isOwner: planData.ownerId === currentUser.uid || activePlanId === currentUser.uid,
+            members,
           },
         }))
       },
@@ -379,6 +532,63 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       unsubRecipes()
     }
   }, [state.activePlanId, state.user?.uid])
+
+  const setSelectedWeightAccountUid = useCallback((uid: string) => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('planer_weight_account_uid', uid)
+      } catch {}
+    }
+    setSelectedWeightAccountUidState(uid)
+  }, [])
+
+  // Listen to partner profile (goals) and weightLogs in real time when another member is selected
+  useEffect(() => {
+    const currentUser = state.user
+    const targetUid = selectedWeightAccountUid
+    if (
+      !currentUser ||
+      !targetUid ||
+      targetUid === currentUser.uid ||
+      targetUid === 'demo-user' ||
+      targetUid === 'demo-partner'
+    ) {
+      return
+    }
+
+    // 1. Listen to partner's goals
+    const partnerUserRef = doc(db, 'users', targetUid)
+    const unsubUser = onSnapshot(
+      partnerUserRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const userData = docSnap.data()
+          if (userData?.goals) {
+            setPartnerGoals((prev) => ({ ...prev, [targetUid]: userData.goals }))
+          }
+        }
+      },
+      (err) => console.warn('Partner profile listener warning:', err),
+    )
+
+    // 2. Listen to partner's weightLogs
+    const partnerWeightsRef = collection(db, 'users', targetUid, 'weightLogs')
+    const unsubWeights = onSnapshot(
+      partnerWeightsRef,
+      (snapshot) => {
+        const loaded: WeightEntry[] = []
+        snapshot.forEach((d) => loaded.push(d.data() as WeightEntry))
+        loaded.sort((a, b) => a.date.localeCompare(b.date))
+        setPartnerWeights((prev) => ({ ...prev, [targetUid]: loaded }))
+      },
+      (err) => console.warn('Partner weights listener warning:', err),
+    )
+
+    return () => {
+      unsubUser()
+      unsubWeights()
+    }
+  }, [state.user, selectedWeightAccountUid])
 
   // Helper to persist a day plan with debouncing (protects Firestore write quotas)
   const persistPlanDebounced = useCallback(
@@ -633,61 +843,118 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     [updatePlan],
   )
 
-  const setGoals = useCallback((goals: Goals) => {
-    setState((s) => {
-      const currentUser = auth.currentUser
-      if (currentUser) {
-        const path = `users/${currentUser.uid}`
-        setDoc(doc(db, 'users', currentUser.uid), { goals }, { merge: true }).catch((err) =>
-          handleFirestoreError(err, OperationType.WRITE, path),
-        )
-      }
-      return { ...s, goals }
-    })
-  }, [])
+  const setGoals = useCallback(
+    (goals: Goals, targetUid?: string) => {
+      const destUid = targetUid || selectedWeightAccountUid || (state.user ? state.user.uid : 'demo-user')
+      const isMyAccount = state.user ? destUid === state.user.uid : destUid === 'demo-user'
 
-  const logWeight = useCallback((entry: WeightEntry) => {
-    setState((s) => {
-      const updated = [...s.weights.filter((w) => w.date !== entry.date), entry].sort((a, b) =>
-        a.date.localeCompare(b.date),
-      )
-      const currentUser = auth.currentUser
-      if (currentUser) {
-        const path = `users/${currentUser.uid}/weightLogs/${entry.date}`
-        const cleanEntry: Record<string, unknown> = {
-          date: entry.date,
-          weightKg: entry.weightKg,
+      if (isMyAccount) {
+        setState((s) => {
+          const currentUser = auth.currentUser
+          if (currentUser) {
+            const path = `users/${currentUser.uid}`
+            setDoc(doc(db, 'users', currentUser.uid), { goals }, { merge: true }).catch((err) =>
+              handleFirestoreError(err, OperationType.WRITE, path),
+            )
+          }
+          return { ...s, goals }
+        })
+      } else {
+        setPartnerGoals((prev) => ({ ...prev, [destUid]: goals }))
+        if (state.user && destUid !== 'demo-partner') {
+          setDoc(doc(db, 'users', destUid), { goals }, { merge: true }).catch((err) =>
+            console.warn('Nie udało się zapisać celu partnera:', err),
+          )
         }
-        if (typeof entry.waistCm === 'number' && !Number.isNaN(entry.waistCm)) {
-          cleanEntry.waistCm = entry.waistCm
-        }
-        if (typeof entry.hipsCm === 'number' && !Number.isNaN(entry.hipsCm)) {
-          cleanEntry.hipsCm = entry.hipsCm
-        }
-
-        setDoc(doc(db, 'users', currentUser.uid), { weightLogs: { [entry.date]: cleanEntry } }, { merge: true }).catch(
-          () => {},
-        )
-        setDoc(doc(db, 'users', currentUser.uid, 'weightLogs', entry.date), cleanEntry).catch((err) =>
-          handleFirestoreError(err, OperationType.WRITE, path),
-        )
       }
-      return { ...s, weights: updated }
-    })
-  }, [])
+    },
+    [selectedWeightAccountUid, state.user],
+  )
 
-  const removeWeight = useCallback((date: DateKey) => {
-    setState((s) => {
-      const currentUser = auth.currentUser
-      if (currentUser) {
-        const path = `users/${currentUser.uid}/weightLogs/${date}`
-        deleteDoc(doc(db, 'users', currentUser.uid, 'weightLogs', date)).catch((err) =>
-          handleFirestoreError(err, OperationType.DELETE, path),
-        )
+  const logWeight = useCallback(
+    (entry: WeightEntry, targetUid?: string) => {
+      const destUid = targetUid || selectedWeightAccountUid || (state.user ? state.user.uid : 'demo-user')
+      const isMyAccount = state.user ? destUid === state.user.uid : destUid === 'demo-user'
+
+      const cleanEntry: Record<string, unknown> = {
+        date: entry.date,
+        weightKg: entry.weightKg,
       }
-      return { ...s, weights: s.weights.filter((w) => w.date !== date) }
-    })
-  }, [])
+      if (typeof entry.waistCm === 'number' && !Number.isNaN(entry.waistCm)) {
+        cleanEntry.waistCm = entry.waistCm
+      }
+      if (typeof entry.hipsCm === 'number' && !Number.isNaN(entry.hipsCm)) {
+        cleanEntry.hipsCm = entry.hipsCm
+      }
+
+      if (isMyAccount) {
+        setState((s) => {
+          const updated = [...s.weights.filter((w) => w.date !== entry.date), entry].sort((a, b) =>
+            a.date.localeCompare(b.date),
+          )
+          const currentUser = auth.currentUser
+          if (currentUser) {
+            const path = `users/${currentUser.uid}/weightLogs/${entry.date}`
+            setDoc(
+              doc(db, 'users', currentUser.uid),
+              { weightLogs: { [entry.date]: cleanEntry } },
+              { merge: true },
+            ).catch(() => {})
+            setDoc(doc(db, 'users', currentUser.uid, 'weightLogs', entry.date), cleanEntry).catch((err) =>
+              handleFirestoreError(err, OperationType.WRITE, path),
+            )
+          }
+          return { ...s, weights: updated }
+        })
+      } else {
+        setPartnerWeights((prev) => {
+          const list = prev[destUid] || []
+          const updated = [...list.filter((w) => w.date !== entry.date), entry].sort((a, b) =>
+            a.date.localeCompare(b.date),
+          )
+          return { ...prev, [destUid]: updated }
+        })
+
+        if (state.user && destUid !== 'demo-partner') {
+          setDoc(doc(db, 'users', destUid, 'weightLogs', entry.date), cleanEntry).catch((err) =>
+            console.warn('Nie udało się zapisać pomiaru dla partnera w Firestore:', err),
+          )
+        }
+      }
+    },
+    [selectedWeightAccountUid, state.user],
+  )
+
+  const removeWeight = useCallback(
+    (date: DateKey, targetUid?: string) => {
+      const destUid = targetUid || selectedWeightAccountUid || (state.user ? state.user.uid : 'demo-user')
+      const isMyAccount = state.user ? destUid === state.user.uid : destUid === 'demo-user'
+
+      if (isMyAccount) {
+        setState((s) => {
+          const currentUser = auth.currentUser
+          if (currentUser) {
+            const path = `users/${currentUser.uid}/weightLogs/${date}`
+            deleteDoc(doc(db, 'users', currentUser.uid, 'weightLogs', date)).catch((err) =>
+              handleFirestoreError(err, OperationType.DELETE, path),
+            )
+          }
+          return { ...s, weights: s.weights.filter((w) => w.date !== date) }
+        })
+      } else {
+        setPartnerWeights((prev) => {
+          const list = prev[destUid] || []
+          return { ...prev, [destUid]: list.filter((w) => w.date !== date) }
+        })
+        if (state.user && destUid !== 'demo-partner') {
+          deleteDoc(doc(db, 'users', destUid, 'weightLogs', date)).catch((err) =>
+            console.warn('Nie udało się usunąć pomiaru partnera z Firestore:', err),
+          )
+        }
+      }
+    },
+    [selectedWeightAccountUid, state.user],
+  )
 
   const createOrGetShareCode = useCallback(async (): Promise<string> => {
     const currentUser = auth.currentUser
@@ -725,6 +992,13 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       createdAt: new Date().toISOString(),
     })
 
+    const myProfile = {
+      uid: currentUser.uid,
+      displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'Główny profil',
+      email: currentUser.email || '',
+      photoURL: currentUser.photoURL || '',
+    }
+
     await setDoc(
       planRef,
       {
@@ -732,6 +1006,9 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         ownerId: currentUser.uid,
         ownerName: currentUser.displayName || 'Główny profil',
         members: planSnap.data()?.members || [currentUser.uid],
+        memberDetails: {
+          [currentUser.uid]: myProfile,
+        },
         shareCode: newCode,
         createdAt: planSnap.data()?.createdAt || new Date().toISOString(),
       },
@@ -784,16 +1061,26 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         const codeData = codeSnap.data()
         const targetPlanId = codeData.planId
 
-        // 1. Add this user to target plan members
+        // 1. Add this user to target plan members with profile details
         const planRef = doc(db, 'plans', targetPlanId)
         const planSnap = await getDoc(planRef)
         const currentMembers: string[] = planSnap.data()?.members || [codeData.ownerUid]
         const updatedMembers = Array.from(new Set([...currentMembers, currentUser.uid]))
 
+        const myProfile = {
+          uid: currentUser.uid,
+          displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'Konto partnera',
+          email: currentUser.email || '',
+          photoURL: currentUser.photoURL || '',
+        }
+
         await setDoc(
           planRef,
           {
             members: updatedMembers,
+            memberDetails: {
+              [currentUser.uid]: myProfile,
+            },
           },
           { merge: true },
         )
@@ -926,9 +1213,80 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, authError: null }))
   }, [])
 
+  const planMembers = useMemo<PlanMemberInfo[]>(() => {
+    if (state.user) {
+      if (state.sharedPlanInfo?.members && state.sharedPlanInfo.members.length > 0) {
+        return state.sharedPlanInfo.members
+      }
+      return [
+        {
+          uid: state.user.uid,
+          displayName: state.user.displayName || 'Moje konto (Ty)',
+          email: state.user.email || undefined,
+          photoURL: state.user.photoURL || undefined,
+          isCurrent: true,
+          isOwner: true,
+          goals: state.goals,
+        },
+      ]
+    }
+    return DEMO_MEMBERS
+  }, [state.user, state.sharedPlanInfo?.members, state.goals])
+
+  const effectiveSelectedUid = useMemo(() => {
+    if (selectedWeightAccountUid) {
+      const exists = planMembers.some((m) => m.uid === selectedWeightAccountUid)
+      if (exists) return selectedWeightAccountUid
+    }
+    if (state.user) return state.user.uid
+    return 'demo-user'
+  }, [selectedWeightAccountUid, planMembers, state.user])
+
+  const activeMember = useMemo<PlanMemberInfo | null>(() => {
+    return (
+      planMembers.find((m) => m.uid === effectiveSelectedUid) ||
+      planMembers[0] ||
+      null
+    )
+  }, [planMembers, effectiveSelectedUid])
+
+  const effectiveGoals = useMemo<Goals>(() => {
+    if (state.user) {
+      if (effectiveSelectedUid === state.user.uid) {
+        return state.goals
+      }
+      return partnerGoals[effectiveSelectedUid] || state.goals
+    }
+    // Demo mode
+    if (effectiveSelectedUid === 'demo-partner') {
+      return partnerGoals['demo-partner'] || DUMMY_PARTNER_PROFILE.goals
+    }
+    return state.goals
+  }, [state.user, effectiveSelectedUid, state.goals, partnerGoals])
+
+  const effectiveWeights = useMemo<WeightEntry[]>(() => {
+    if (state.user) {
+      if (effectiveSelectedUid === state.user.uid) {
+        return state.weights
+      }
+      return partnerWeights[effectiveSelectedUid] || []
+    }
+    // Demo mode
+    if (effectiveSelectedUid === 'demo-partner') {
+      return partnerWeights['demo-partner'] || []
+    }
+    return state.weights
+  }, [state.user, effectiveSelectedUid, state.weights, partnerWeights])
+
   const value = useMemo(
     () => ({
       ...state,
+      goals: effectiveGoals,
+      weights: effectiveWeights,
+      selectedWeightAccountUid: effectiveSelectedUid,
+      setSelectedWeightAccountUid,
+      planMembers,
+      activeMember,
       saveRecipe,
       deleteRecipe,
       toggleFavorite,
@@ -949,6 +1307,12 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     }),
     [
       state,
+      effectiveGoals,
+      effectiveWeights,
+      effectiveSelectedUid,
+      setSelectedWeightAccountUid,
+      planMembers,
+      activeMember,
       saveRecipe,
       deleteRecipe,
       toggleFavorite,

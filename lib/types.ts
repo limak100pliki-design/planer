@@ -75,8 +75,20 @@ export interface WeightEntry {
 export interface UserProfile {
   uid: string
   displayName: string
+  email?: string
   activePlanId?: string
+  selectedWeightAccountUid?: string
   goals: Goals
+}
+
+export interface PlanMemberInfo {
+  uid: string
+  displayName: string
+  email?: string
+  photoURL?: string
+  isOwner?: boolean
+  isCurrent?: boolean
+  goals?: Goals
 }
 
 export interface SharedPlanInfo {
@@ -87,4 +99,5 @@ export interface SharedPlanInfo {
   ownerName?: string
   membersCount: number
   isOwner: boolean
+  members?: PlanMemberInfo[]
 }

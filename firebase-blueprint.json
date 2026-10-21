@@ -8,6 +8,7 @@
         "uid": { "type": "string", "maxLength": 128 },
         "displayName": { "type": "string", "maxLength": 128 },
         "activePlanId": { "type": "string", "maxLength": 128 },
+        "selectedWeightAccountUid": { "type": "string", "maxLength": 128 },
         "goals": {
           "type": "object",
           "properties": {
@@ -34,6 +35,9 @@
         "members": {
           "type": "array",
           "items": { "type": "string" }
+        },
+        "memberDetails": {
+          "type": "object"
         },
         "shareCode": { "type": "string", "maxLength": 32 },
         "createdAt": { "type": "string" }

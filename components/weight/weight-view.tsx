@@ -2,15 +2,17 @@
 
 import { useId, useState } from 'react'
 import { Area, AreaChart, CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from 'recharts'
-import { Pencil, Ruler, Scale, Trash2, TrendingDown, TrendingUp, X } from 'lucide-react'
+import { Check, Pencil, Ruler, Scale, Trash2, TrendingDown, TrendingUp, User, Users, X } from 'lucide-react'
 import { usePlanner } from '@/lib/store'
 import { formatShortDate, fromDateKey, toDateKey } from '@/lib/date'
 import { formatNumber } from '@/lib/nutrition'
+import { cn } from '@/lib/utils'
 import { SectionHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
 
 const chartConfig = {
@@ -22,7 +24,17 @@ const chartConfig = {
 type MetricView = 'weight' | 'waist' | 'hips' | 'all'
 
 export function WeightView() {
-  const { weights, goals, logWeight, removeWeight } = usePlanner()
+  const {
+    weights,
+    goals,
+    logWeight,
+    removeWeight,
+    sharedPlanInfo,
+    planMembers,
+    selectedWeightAccountUid,
+    setSelectedWeightAccountUid,
+    activeMember,
+  } = usePlanner()
   const id = useId()
   const [date, setDate] = useState(() => toDateKey(new Date()))
   const [weight, setWeight] = useState('')
@@ -133,6 +145,65 @@ export function WeightView() {
         title="Monitor Wagi i Wymiarów"
         description="Zapisuj wagę oraz obwód talii i bioder, aby kompleksowo obserwować postępy sylwetki."
       />
+
+      {/* Multi-Account Data Source Switcher for Shared Plans */}
+      {(sharedPlanInfo?.isShared || planMembers.length > 1) && (
+        <div className="mb-6 rounded-2xl border border-primary/25 bg-card/90 p-4 shadow-xs backdrop-blur">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Users className="size-4.5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Konto źródłowe pomiarów i celu
+                  </span>
+                  <Badge variant="outline" className="text-[10px] border-primary/30 text-primary px-1.5 py-0">
+                    Konto współdzielone
+                  </Badge>
+                </div>
+                <p className="text-xs sm:text-sm text-foreground font-medium">
+                  Pomiary i cel wagi pobierane z konta:{' '}
+                  <span className="font-bold text-primary">
+                    {activeMember?.displayName || 'Wybrane konto'}
+                  </span>
+                  {activeMember?.isCurrent && (
+                    <span className="ml-1 text-xs text-muted-foreground font-normal">(Ty)</span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {/* Segmented Account Buttons */}
+            <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-border/80 bg-muted/40 p-1">
+              {planMembers.map((member) => {
+                const isSelected = member.uid === selectedWeightAccountUid
+                return (
+                  <button
+                    key={member.uid}
+                    type="button"
+                    onClick={() => setSelectedWeightAccountUid(member.uid)}
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all',
+                      isSelected
+                        ? 'bg-background text-primary shadow-xs font-semibold ring-1 ring-border/50'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-background/50',
+                    )}
+                  >
+                    <User className="size-3.5" />
+                    <span>{member.displayName}</span>
+                    {member.isCurrent && (
+                      <span className="text-[10px] opacity-75 font-normal">(Ty)</span>
+                    )}
+                    {isSelected && <Check className="size-3 text-primary ml-0.5" />}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat
@@ -413,6 +484,16 @@ export function WeightView() {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
+                {(sharedPlanInfo?.isShared || planMembers.length > 1) && (
+                  <div className="flex items-center justify-between rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
+                    <span className="text-muted-foreground">Konto dla pomiaru:</span>
+                    <span className="font-semibold text-primary flex items-center gap-1.5">
+                      <User className="size-3.5" />
+                      {activeMember?.displayName || 'Wybrane konto'}
+                    </span>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label htmlFor={`${id}-date`}>Data</Label>
@@ -470,7 +551,9 @@ export function WeightView() {
                 )}
 
                 <Button type="submit" className="w-full">
-                  {editingDate ? 'Zaktualizuj pomiar' : 'Zapisz pomiar'}
+                  {editingDate
+                    ? 'Zaktualizuj pomiar'
+                    : `Zapisz pomiar (${activeMember?.displayName || 'konto'})`}
                 </Button>
               </form>
             </CardContent>

@@ -39,7 +39,7 @@ export function NutritionDashboardWidget({
   className,
   onNavigateToGoals,
 }: NutritionDashboardWidgetProps) {
-  const { goals } = usePlanner()
+  const { goals, activeMember, sharedPlanInfo, planMembers } = usePlanner()
   const [activeTab, setActiveTab] = useState<TabView>('overview')
 
   const total = dayNutrition(plan)
@@ -178,9 +178,16 @@ export function NutritionDashboardWidget({
               <div className="rounded-2xl border border-border/80 bg-linear-to-br from-background via-muted/20 to-muted/40 p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Kalorie całkowite
-                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Kalorie całkowite
+                      </span>
+                      {(sharedPlanInfo?.isShared || planMembers.length > 1) && activeMember && (
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                          Cel: {activeMember.displayName}
+                        </span>
+                      )}
+                    </div>
                     <div className="mt-1 flex items-baseline gap-2">
                       <span className="text-3xl font-bold tracking-tight text-foreground tabular-nums sm:text-4xl">
                         {formatNumber(total.kcal)}
