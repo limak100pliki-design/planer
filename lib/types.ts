@@ -68,6 +68,8 @@ export interface Goals {
 export interface WeightEntry {
   date: DateKey
   weightKg: number
+  waistCm?: number
+  hipsCm?: number
 }
 
 export interface UserProfile {

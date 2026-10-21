@@ -237,7 +237,14 @@ export function generateDummyWeights(today: Date): WeightEntry[] {
   for (let daysAgo = 42; daysAgo >= 0; daysAgo -= 3) {
     const progress = (42 - daysAgo) / 42
     const weight = 82.6 - progress * 2.4 + noise[i % noise.length]
-    entries.push({ date: toDateKey(addDays(today, -daysAgo)), weightKg: Math.round(weight * 10) / 10 })
+    const waist = 88.5 - progress * 3.2 + noise[(i + 2) % noise.length]
+    const hips = 103.0 - progress * 2.5 + noise[(i + 4) % noise.length]
+    entries.push({
+      date: toDateKey(addDays(today, -daysAgo)),
+      weightKg: Math.round(weight * 10) / 10,
+      waistCm: Math.round(waist * 10) / 10,
+      hipsCm: Math.round(hips * 10) / 10,
+    })
     i++
   }
   return entries

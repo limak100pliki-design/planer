@@ -87,11 +87,13 @@
     },
     "WeightEntry": {
       "title": "WeightEntry",
-      "description": "Daily body weight entry in kilograms",
+      "description": "Daily body weight entry in kilograms with optional waist and hip circumferences in centimeters",
       "type": "object",
       "properties": {
         "date": { "type": "string", "maxLength": 10, "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
-        "weightKg": { "type": "number" }
+        "weightKg": { "type": "number" },
+        "waistCm": { "type": "number" },
+        "hipsCm": { "type": "number" }
       },
       "required": ["date", "weightKg"]
     }

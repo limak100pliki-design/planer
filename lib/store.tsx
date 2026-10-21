@@ -654,10 +654,21 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       const currentUser = auth.currentUser
       if (currentUser) {
         const path = `users/${currentUser.uid}/weightLogs/${entry.date}`
-        setDoc(doc(db, 'users', currentUser.uid), { weightLogs: { [entry.date]: entry } }, { merge: true }).catch(
+        const cleanEntry: Record<string, unknown> = {
+          date: entry.date,
+          weightKg: entry.weightKg,
+        }
+        if (typeof entry.waistCm === 'number' && !Number.isNaN(entry.waistCm)) {
+          cleanEntry.waistCm = entry.waistCm
+        }
+        if (typeof entry.hipsCm === 'number' && !Number.isNaN(entry.hipsCm)) {
+          cleanEntry.hipsCm = entry.hipsCm
+        }
+
+        setDoc(doc(db, 'users', currentUser.uid), { weightLogs: { [entry.date]: cleanEntry } }, { merge: true }).catch(
           () => {},
         )
-        setDoc(doc(db, 'users', currentUser.uid, 'weightLogs', entry.date), entry).catch((err) =>
+        setDoc(doc(db, 'users', currentUser.uid, 'weightLogs', entry.date), cleanEntry).catch((err) =>
           handleFirestoreError(err, OperationType.WRITE, path),
         )
       }
