@@ -11,6 +11,9 @@ import {
 } from 'firebase/auth'
 import {
   getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   doc,
   getDocFromServer,
   type Firestore,
@@ -19,17 +22,33 @@ import firebaseConfig from '../firebase-applet-config.json'
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp()
 
-// CRITICAL: Connect directly to the provisioned database ID
-export const db: Firestore = getFirestore(app, firebaseConfig.firestoreDatabaseId)
+// CRITICAL: Connect directly to the provisioned database ID with persistent local cache for offline PWA support
+let firestoreInstance: Firestore
+try {
+  firestoreInstance = initializeFirestore(
+    app,
+    {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    },
+    firebaseConfig.firestoreDatabaseId,
+  )
+} catch {
+  firestoreInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId)
+}
+export const db: Firestore = firestoreInstance
 export const auth = getAuth(app)
 
-// Enforce browserLocalPersistence (localStorage) so the session lasts indefinitely
-// across page refreshes, tab closures, and browser restarts.
+// Enforce durable persistence so PWA stays logged in indefinitely across
+// app closures, OS app-switching, device sleep, and offline moments.
+// Prioritize indexedDBLocalPersistence (standard for standalone PWAs) with browserLocalPersistence fallback.
 if (typeof window !== 'undefined') {
-  setPersistence(auth, browserLocalPersistence).catch((err) => {
-    console.warn('[Firebase Auth] Próba fallbacku do indexedDBLocalPersistence:', err)
-    setPersistence(auth, indexedDBLocalPersistence).catch(() => {})
-  })
+  setPersistence(auth, indexedDBLocalPersistence)
+    .catch(() => setPersistence(auth, browserLocalPersistence))
+    .catch((err) => {
+      console.warn('[Firebase Auth] Trwałość sesji ostrzeżenie:', err)
+    })
 }
 
 export const googleProvider = new GoogleAuthProvider()
@@ -116,10 +135,10 @@ export async function signInWithGoogle(): Promise<AuthResult> {
   try {
     if (typeof window !== 'undefined') {
       try {
-        await setPersistence(auth, browserLocalPersistence)
+        await setPersistence(auth, indexedDBLocalPersistence)
       } catch {
         try {
-          await setPersistence(auth, indexedDBLocalPersistence)
+          await setPersistence(auth, browserLocalPersistence)
         } catch {
           // ignore fallback error
         }

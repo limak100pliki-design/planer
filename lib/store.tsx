@@ -114,6 +114,88 @@ interface PlannerActions {
   activeMember: PlanMemberInfo | null
 }
 
+const PWA_SESSION_KEY = 'planer_pwa_saved_session'
+const PWA_DATA_CACHE_KEY = 'planer_pwa_cached_data'
+const PWA_EXPLICIT_LOGOUT_KEY = 'planer_explicit_logout'
+
+export interface CachedPWASession {
+  uid: string
+  email: string | null
+  displayName: string | null
+  photoURL: string | null
+  savedAt: number
+}
+
+export interface CachedPWAData {
+  recipes?: Recipe[]
+  plans?: Record<DateKey, DayPlan>
+  goals?: Goals
+  weights?: WeightEntry[]
+  activePlanId?: string
+  sharedPlanInfo?: SharedPlanInfo | null
+  partnerGoals?: Record<string, Goals>
+  partnerWeights?: Record<string, WeightEntry[]>
+}
+
+export function getStoredPWASession(): CachedPWASession | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const isExplicitLogout = localStorage.getItem(PWA_EXPLICIT_LOGOUT_KEY) === 'true'
+    if (isExplicitLogout) return null
+    const raw = localStorage.getItem(PWA_SESSION_KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as CachedPWASession
+  } catch {
+    return null
+  }
+}
+
+export function getStoredPWAData(): CachedPWAData | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(PWA_DATA_CACHE_KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as CachedPWAData
+  } catch {
+    return null
+  }
+}
+
+export function savePWADataToCache(patch: Partial<CachedPWAData>) {
+  if (typeof window === 'undefined') return
+  try {
+    const existing = getStoredPWAData() || {}
+    const updated = { ...existing, ...patch }
+    localStorage.setItem(PWA_DATA_CACHE_KEY, JSON.stringify(updated))
+  } catch {
+    // ignore quota/private mode errors
+  }
+}
+
+export function savePWASession(user: { uid: string; email?: string | null; displayName?: string | null; photoURL?: string | null }) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.removeItem(PWA_EXPLICIT_LOGOUT_KEY)
+    const session: CachedPWASession = {
+      uid: user.uid,
+      email: user.email || null,
+      displayName: user.displayName || null,
+      photoURL: user.photoURL || null,
+      savedAt: Date.now(),
+    }
+    localStorage.setItem(PWA_SESSION_KEY, JSON.stringify(session))
+  } catch {}
+}
+
+export function clearPWASession() {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(PWA_EXPLICIT_LOGOUT_KEY, 'true')
+    localStorage.removeItem(PWA_SESSION_KEY)
+    localStorage.removeItem(PWA_DATA_CACHE_KEY)
+  } catch {}
+}
+
 const PlannerContext = createContext<(PlannerState & PlannerActions) | null>(null)
 
 function createInitialState(): PlannerState {
@@ -165,6 +247,46 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     'demo-partner': generateDummyPartnerWeights(new Date()),
   })
 
+  // 1. Instant offline hydration from local PWA session & data cache
+  // This guarantees that when opening the PWA (even offline), the user is immediately recognized as logged in with zero flash.
+  useEffect(() => {
+    const cachedSession = getStoredPWASession()
+    const cachedData = getStoredPWAData()
+
+    if (cachedSession) {
+      const optimisticUser = {
+        uid: cachedSession.uid,
+        email: cachedSession.email,
+        displayName: cachedSession.displayName,
+        photoURL: cachedSession.photoURL,
+        emailVerified: true,
+        isAnonymous: false,
+      } as unknown as User
+
+      setState((s) => {
+        if (s.user) return s
+        return {
+          ...s,
+          user: optimisticUser,
+          isLoadingAuth: false,
+          activePlanId: cachedData?.activePlanId || cachedSession.uid,
+          goals: cachedData?.goals || s.goals,
+          weights: cachedData?.weights && cachedData.weights.length > 0 ? cachedData.weights : s.weights,
+          recipes: cachedData?.recipes && cachedData.recipes.length > 0 ? cachedData.recipes : s.recipes,
+          plans: cachedData?.plans && Object.keys(cachedData.plans).length > 0 ? { ...s.plans, ...cachedData.plans } : s.plans,
+          sharedPlanInfo: cachedData?.sharedPlanInfo || s.sharedPlanInfo,
+        }
+      })
+
+      if (cachedData?.partnerGoals) {
+        setPartnerGoals((prev) => ({ ...prev, ...cachedData.partnerGoals }))
+      }
+      if (cachedData?.partnerWeights) {
+        setPartnerWeights((prev) => ({ ...prev, ...cachedData.partnerWeights }))
+      }
+    }
+  }, [])
+
   // Initial connection test
   useEffect(() => {
     testConnection()
@@ -174,6 +296,24 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (!currentUser) {
+        const isExplicitLogout =
+          typeof window !== 'undefined' && localStorage.getItem(PWA_EXPLICIT_LOGOUT_KEY) === 'true'
+        const cachedSession = getStoredPWASession()
+
+        // PWA Persistent Login Guard:
+        // If the user previously logged in and has not explicitly clicked "Wyloguj",
+        // preserve the offline session across app restarts, device sleep, and offline moments!
+        if (!isExplicitLogout && cachedSession) {
+          console.log('[PWA Auth] Zachowano sesję PWA w trybie trwałym/offline:', cachedSession.email || cachedSession.uid)
+          setState((s) => ({
+            ...s,
+            isLoadingAuth: false,
+            isSyncing: false,
+          }))
+          return
+        }
+
+        // Only revert to demo state if user deliberately clicked logout or has no saved session
         setState((s) => ({
           ...s,
           user: null,
@@ -194,6 +334,8 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         return
       }
 
+      // User authenticated with Firebase
+      savePWASession(currentUser)
       setState((s) => ({ ...s, user: currentUser, isLoadingAuth: false, isSyncing: true }))
 
       try {
@@ -380,13 +522,26 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        setState((s) => ({
-          ...s,
-          activePlanId: targetPlanId,
-          sharedPlanInfo: planInfo,
-          plans: Object.keys(loadedPlans).length > 0 ? { ...s.plans, ...loadedPlans } : s.plans,
-          isSyncing: false,
-        }))
+        setState((s) => {
+          const finalPlans = Object.keys(loadedPlans).length > 0 ? { ...s.plans, ...loadedPlans } : s.plans
+          const finalRecipes = loadedRecipes.length > 0 ? loadedRecipes : s.recipes
+          savePWADataToCache({
+            activePlanId: targetPlanId,
+            sharedPlanInfo: planInfo,
+            plans: finalPlans,
+            recipes: finalRecipes,
+            weights: s.weights,
+            goals: s.goals,
+          })
+          return {
+            ...s,
+            activePlanId: targetPlanId,
+            sharedPlanInfo: planInfo,
+            plans: finalPlans,
+            recipes: finalRecipes,
+            isSyncing: false,
+          }
+        })
       } catch (error) {
         console.warn('Nie udało się wczytać danych z Firestore:', error)
         setState((s) => ({ ...s, isSyncing: false }))
@@ -622,9 +777,11 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       setState((s) => {
         const updated = update(s.plans[date] ?? emptyDayPlan(date))
         persistPlanDebounced(date, updated)
+        const nextPlans = { ...s.plans, [date]: updated }
+        savePWADataToCache({ plans: nextPlans })
         return {
           ...s,
-          plans: { ...s.plans, [date]: updated },
+          plans: nextPlans,
         }
       })
     },
@@ -638,6 +795,8 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         const nextRecipes = exists
           ? s.recipes.map((r) => (r.id === recipe.id ? recipe : r))
           : [recipe, ...s.recipes]
+
+        savePWADataToCache({ recipes: nextRecipes })
 
         // Persist to collaborative plan in Firestore if user logged in
         const currentUser = auth.currentUser
@@ -658,6 +817,9 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   const deleteRecipe = useCallback(
     (recipeId: string) => {
       setState((s) => {
+        const updated = s.recipes.filter((r) => r.id !== recipeId)
+        savePWADataToCache({ recipes: updated })
+
         const currentUser = auth.currentUser
         if (currentUser) {
           const targetPlanId = s.activePlanId || currentUser.uid
@@ -666,7 +828,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
             handleFirestoreError(err, OperationType.DELETE, path),
           )
         }
-        return { ...s, recipes: s.recipes.filter((r) => r.id !== recipeId) }
+        return { ...s, recipes: updated }
       })
     },
     [],
@@ -849,6 +1011,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       const isMyAccount = state.user ? destUid === state.user.uid : destUid === 'demo-user'
 
       if (isMyAccount) {
+        savePWADataToCache({ goals })
         setState((s) => {
           const currentUser = auth.currentUser
           if (currentUser) {
@@ -892,6 +1055,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
           const updated = [...s.weights.filter((w) => w.date !== entry.date), entry].sort((a, b) =>
             a.date.localeCompare(b.date),
           )
+          savePWADataToCache({ weights: updated })
           const currentUser = auth.currentUser
           if (currentUser) {
             const path = `users/${currentUser.uid}/weightLogs/${entry.date}`
@@ -932,6 +1096,8 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
 
       if (isMyAccount) {
         setState((s) => {
+          const updated = s.weights.filter((w) => w.date !== date)
+          savePWADataToCache({ weights: updated })
           const currentUser = auth.currentUser
           if (currentUser) {
             const path = `users/${currentUser.uid}/weightLogs/${date}`
@@ -939,7 +1105,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
               handleFirestoreError(err, OperationType.DELETE, path),
             )
           }
-          return { ...s, weights: s.weights.filter((w) => w.date !== date) }
+          return { ...s, weights: updated }
         })
       } else {
         setPartnerWeights((prev) => {
@@ -1199,13 +1365,36 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async () => {
     setState((s) => ({ ...s, authError: null }))
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(PWA_EXPLICIT_LOGOUT_KEY)
+      } catch {}
+    }
     const res = await signInWithGoogle()
-    if (res.error) {
+    if (res.user) {
+      savePWASession(res.user)
+    } else if (res.error) {
       setState((s) => ({ ...s, authError: res.error ?? null }))
     }
   }, [])
 
   const logout = useCallback(async () => {
+    clearPWASession()
+    setState((s) => ({
+      ...s,
+      user: null,
+      activePlanId: 'demo-shared-plan',
+      sharedPlanInfo: {
+        planId: 'demo-shared-plan',
+        isShared: true,
+        shareCode: 'TAL-7824',
+        ownerId: 'demo-user',
+        ownerName: 'Anna',
+        membersCount: 2,
+        isOwner: true,
+        members: DEMO_MEMBERS,
+      },
+    }))
     await logoutUser()
   }, [])
 

@@ -26,9 +26,14 @@ export function PWAInstallButton({ variant = 'sidebar', className }: PWAInstallB
   if (isInstalled) {
     if (variant === 'card') {
       return (
-        <div className="flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 p-3.5 text-xs text-primary font-medium">
-          <CheckCircle2 className="size-4 shrink-0 text-primary" />
-          <span>Aplikacja jest już zainstalowana na Twoim urządzeniu.</span>
+        <div className="flex items-center gap-2.5 rounded-xl border border-primary/30 bg-primary/10 p-3.5 text-xs text-primary font-medium">
+          <CheckCircle2 className="size-4.5 shrink-0 text-primary" />
+          <div>
+            <p className="font-semibold text-foreground">Aplikacja PWA zainstalowana na tym urządzeniu</p>
+            <p className="text-[11px] text-muted-foreground">
+              Stała sesja jest aktywna — jesteś zawsze zalogowany(a), a Twoje plany i pomiary działają również offline.
+            </p>
+          </div>
         </div>
       )
     }
@@ -82,7 +87,7 @@ export function PWAInstallButton({ variant = 'sidebar', className }: PWAInstallB
             <div>
               <p className="text-sm font-semibold text-foreground">Aplikacja na telefon (PWA)</p>
               <p className="text-xs text-muted-foreground">
-                Zainstaluj planer na ekranie głównym telefonu — działa pełnoekranowo i bez logowania za każdym razem.
+                Zainstaluj planer na ekranie głównym — aplikacja pozostaje <span className="font-medium text-foreground">zawsze zalogowana</span>, działa pełnoekranowo i jest dostępna offline.
               </p>
             </div>
           </div>

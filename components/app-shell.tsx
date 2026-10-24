@@ -115,10 +115,14 @@ export function AppShell() {
                   <p className="truncate text-xs font-semibold text-foreground">
                     {user.displayName || 'Użytkownik'}
                   </p>
-                  <p className="flex items-center gap-1 text-[11px] text-primary">
-                    <Cloud className="size-3" />
-                    {isSyncing ? 'Synchronizacja...' : 'Zsynchronizowano'}
-                  </p>
+                  <div className="flex items-center gap-1.5 text-[11px] text-primary">
+                    <Cloud className="size-3 shrink-0" />
+                    <span>{isSyncing ? 'Synchronizacja...' : 'Zsynchronizowano'}</span>
+                    <span className="text-[10px] text-muted-foreground ml-auto flex items-center gap-1">
+                      <span className="size-1.5 rounded-full bg-emerald-500 shrink-0" />
+                      PWA
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -212,12 +216,17 @@ export function AppShell() {
             </span>
           </Button>
 
-          {user ? (
+          {isLoadingAuth ? (
+            <div className="flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
+              <Loader2 className="size-3 animate-spin" />
+              <span>Ładowanie...</span>
+            </div>
+          ) : user ? (
             <button
               type="button"
               onClick={logout}
-              title={`Zalogowano jako ${user.displayName || user.email}. Kliknij aby wylogować.`}
-              className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary"
+              title={`Zalogowano na stałe jako ${user.displayName || user.email}. Kliknij aby wylogować.`}
+              className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/20 transition-colors"
             >
               <UserCheck className="size-3" />
               <span className="max-w-[100px] truncate">{user.displayName?.split(' ')[0] || 'Konto'}</span>
