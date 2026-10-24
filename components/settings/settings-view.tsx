@@ -372,6 +372,14 @@ export function SettingsView() {
         <PWAInstallButton variant="card" />
       </div>
 
+      <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-2 rounded-xl border border-border/50 bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground">
+        <span>Planer Posiłków — Wersja <strong className="font-semibold text-foreground">v2.0.0</strong> (PWA Android / iOS)</span>
+        <span className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+          <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          Stała sesja i tryb offline aktywne
+        </span>
+      </div>
+
       <SharePlanDialog open={shareModalOpen} onOpenChange={setShareModalOpen} />
     </div>
   )

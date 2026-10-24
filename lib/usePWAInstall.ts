@@ -13,11 +13,16 @@ export function usePWAInstall() {
   const [isIOS, setIsIOS] = useState(false)
 
   useEffect(() => {
-    // Register Service Worker
+    // Register Service Worker with version query and force update check
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch((err) => {
-        console.warn('[PWA] Rejestracja Service Worker:', err)
-      })
+      navigator.serviceWorker
+        .register('/sw.js?v=2.0.0')
+        .then((reg) => {
+          reg.update().catch(() => {})
+        })
+        .catch((err) => {
+          console.warn('[PWA] Rejestracja Service Worker:', err)
+        })
     }
 
     // Detect standalone mode (already installed)

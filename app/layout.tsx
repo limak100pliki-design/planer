@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   description:
     'Planuj posiłki na cały tydzień, zarządzaj przepisami, kontroluj kalorie i makroskładniki, monitoruj wagę i generuj listę zakupów.',
   generator: 'v0.app',
-  manifest: '/manifest.webmanifest',
+  manifest: '/manifest.webmanifest?v=2.0.0',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
