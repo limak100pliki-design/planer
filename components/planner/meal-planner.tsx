@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Users } from 'lucide-react'
 import { usePlanner } from '@/lib/store'
 import { addDays, formatLongDate, startOfWeek, toDateKey } from '@/lib/date'
@@ -15,13 +15,20 @@ import { MealSlotCard } from './meal-slot-card'
 import { SharePlanDialog } from './share-plan-dialog'
 
 export function MealPlanner() {
-  const { plans, sharedPlanInfo } = usePlanner()
+  const { plans, sharedPlanInfo, initDayPlan } = usePlanner()
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate])
 
   const dateKey = toDateKey(selectedDate)
   const plan = plans[dateKey] ?? emptyDayPlan(dateKey)
+
+  // Auto-initialize new day with timestamp so cross-device sync on 2 phones never collides
+  useEffect(() => {
+    if (!plans[dateKey]) {
+      initDayPlan(dateKey)
+    }
+  }, [dateKey, plans, initDayPlan])
 
   return (
     <div>

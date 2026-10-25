@@ -107,6 +107,7 @@ interface PlannerActions {
   createOrGetShareCode: () => Promise<string>
   joinSharedPlanWithCode: (code: string) => Promise<{ success: boolean; error?: string }>
   leaveSharedPlan: () => Promise<void>
+  initDayPlan: (date: DateKey) => void
   importRecipesBulk: (importedRecipes: Recipe[]) => Promise<{ count: number }>
   setSelectedWeightAccountUid: (uid: string) => void
   selectedWeightAccountUid: string
@@ -217,8 +218,8 @@ export function mergePlansWithTimestamps(
       continue
     }
 
-    const currentTs = Number(existing.updatedAt) || 0
-    const incomingTs = Number(incomingPlan.updatedAt) || 0
+    const currentTs = Number(existing.timestamp || existing.updatedAt) || 0
+    const incomingTs = Number(incomingPlan.timestamp || incomingPlan.updatedAt) || 0
 
     if (incomingTs >= currentTs || currentTs === 0) {
       merged[date] = incomingPlan
@@ -810,10 +811,12 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       const timer = debounceTimers.current.get(timerKey)
       if (timer) clearTimeout(timer)
 
+      const now = Date.now()
       const payload: DayPlan = {
         ...plan,
         date,
-        updatedAt: plan.updatedAt || Date.now(),
+        updatedAt: plan.updatedAt || now,
+        timestamp: plan.timestamp || plan.updatedAt || now,
       }
 
       const newTimer = setTimeout(async () => {
@@ -825,7 +828,8 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
               id: targetPlanId,
               ownerId: currentUser.uid,
               name: 'Mój Plan',
-              updatedAt: Date.now(),
+              updatedAt: now,
+              timestamp: now,
             },
             { merge: true },
           )
@@ -846,12 +850,14 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   const updatePlan = useCallback(
     (date: DateKey, update: (plan: DayPlan) => DayPlan) => {
       setState((s) => {
+        const now = Date.now()
         const current = s.plans[date] ?? emptyDayPlan(date)
         const updated = update(current)
         const planWithTimestamp: DayPlan = {
           ...updated,
           date,
-          updatedAt: Date.now(),
+          updatedAt: now,
+          timestamp: now,
         }
         persistPlanDebounced(date, planWithTimestamp)
         const nextPlans = { ...s.plans, [date]: planWithTimestamp }
@@ -868,9 +874,11 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   const saveRecipe = useCallback(
     (recipe: Recipe) => {
       setState((s) => {
+        const now = Date.now()
         const withTimestamp: Recipe = {
           ...recipe,
-          updatedAt: Date.now(),
+          updatedAt: now,
+          timestamp: now,
         }
         const exists = s.recipes.some((r) => r.id === recipe.id)
         const nextRecipes = exists
@@ -995,6 +1003,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         const recipe = s.recipes.find((r) => r.id === recipeId)
         if (!recipe) return s
         const plan = s.plans[date] ?? emptyDayPlan(date)
+        const now = Date.now()
         const updatedPlan: DayPlan = {
           ...plan,
           date,
@@ -1002,10 +1011,38 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
             ...plan.meals,
             [slot]: [...plan.meals[slot], plannedMealFromRecipe(recipe)],
           },
-          updatedAt: Date.now(),
+          updatedAt: now,
+          timestamp: now,
         }
         persistPlanDebounced(date, updatedPlan)
         const nextPlans = { ...s.plans, [date]: updatedPlan }
+        savePWADataToCache({ plans: nextPlans })
+        return {
+          ...s,
+          plans: nextPlans,
+        }
+      })
+    },
+    [persistPlanDebounced],
+  )
+
+  const initDayPlan = useCallback(
+    (date: DateKey) => {
+      setState((s) => {
+        // If plan already exists and has meals or a timestamp, do not overwrite
+        const existing = s.plans[date]
+        if (existing && (existing.timestamp || existing.updatedAt)) {
+          return s
+        }
+        const now = Date.now()
+        const newPlan: DayPlan = {
+          date,
+          meals: existing?.meals || { sniadanie: [], drugieSniadanie: [], obiad: [], kolacja: [] },
+          updatedAt: now,
+          timestamp: now,
+        }
+        persistPlanDebounced(date, newPlan)
+        const nextPlans = { ...s.plans, [date]: newPlan }
         savePWADataToCache({ plans: nextPlans })
         return {
           ...s,
@@ -1577,6 +1614,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       createOrGetShareCode,
       joinSharedPlanWithCode,
       leaveSharedPlan,
+      initDayPlan,
       importRecipesBulk,
     }),
     [
@@ -1591,6 +1629,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       deleteRecipe,
       toggleFavorite,
       addMeal,
+      initDayPlan,
       removeMeal,
       updateIngredientGrams,
       scaleMealCalories,

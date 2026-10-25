@@ -84,10 +84,12 @@ export function formatWeight(grams: number): string {
 }
 
 export function emptyDayPlan(date: string): DayPlan {
+  const now = Date.now()
   return {
     date,
     meals: { sniadanie: [], drugieSniadanie: [], obiad: [], kolacja: [] },
-    updatedAt: 0,
+    updatedAt: now,
+    timestamp: now,
   }
 }
 

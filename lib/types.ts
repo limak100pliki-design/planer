@@ -41,6 +41,7 @@ export interface Recipe {
   ingredients: Ingredient[]
   createdAt: string
   updatedAt?: number
+  timestamp?: number
   /** Where the recipe came from: a URL or a book/person reference. */
   pochodzenie: string
   czyUlubiony: boolean
@@ -57,6 +58,7 @@ export interface DayPlan {
   date: DateKey
   meals: Record<MealSlot, PlannedMeal[]>
   updatedAt?: number
+  timestamp?: number
 }
 
 export interface Goals {
