@@ -150,6 +150,12 @@ export async function signInWithGoogle(): Promise<AuthResult> {
     const error = err as { code?: string; message?: string }
     const code = error?.code || 'unknown'
     const message = error?.message || String(err)
+
+    // User closed popup or dismissed sign-in prompt — normal user cancellation, not a failure
+    if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+      return { user: null, error: null }
+    }
+
     console.error('Błąd logowania przez Google:', code, message)
 
     const isUnauthorizedDomain = code === 'auth/unauthorized-domain'

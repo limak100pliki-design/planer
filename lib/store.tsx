@@ -246,6 +246,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   const [partnerWeights, setPartnerWeights] = useState<Record<string, WeightEntry[]>>({
     'demo-partner': generateDummyPartnerWeights(new Date()),
   })
+  const [authReady, setAuthReady] = useState(false)
 
   // 1. Instant offline hydration from local PWA session & data cache
   // This guarantees that when opening the PWA (even offline), the user is immediately recognized as logged in with zero flash.
@@ -263,13 +264,19 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         isAnonymous: false,
       } as unknown as User
 
+      const rawPlanId = cachedData?.activePlanId
+      const safePlanId =
+        rawPlanId && rawPlanId !== 'demo-shared-plan' && !rawPlanId.startsWith('demo-')
+          ? rawPlanId
+          : cachedSession.uid
+
       setState((s) => {
         if (s.user) return s
         return {
           ...s,
           user: optimisticUser,
           isLoadingAuth: false,
-          activePlanId: cachedData?.activePlanId || cachedSession.uid,
+          activePlanId: safePlanId,
           goals: cachedData?.goals || s.goals,
           weights: cachedData?.weights && cachedData.weights.length > 0 ? cachedData.weights : s.weights,
           recipes: cachedData?.recipes && cachedData.recipes.length > 0 ? cachedData.recipes : s.recipes,
@@ -310,6 +317,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
             isLoadingAuth: false,
             isSyncing: false,
           }))
+          setAuthReady(true)
           return
         }
 
@@ -331,11 +339,13 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
             members: DEMO_MEMBERS,
           },
         }))
+        setAuthReady(true)
         return
       }
 
       // User authenticated with Firebase
       savePWASession(currentUser)
+      setAuthReady(true)
       setState((s) => ({ ...s, user: currentUser, isLoadingAuth: false, isSyncing: true }))
 
       try {
@@ -359,8 +369,10 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
           if (userData?.goals) {
             setState((s) => ({ ...s, goals: userData.goals }))
           }
-          if (userData?.activePlanId) {
+          if (userData?.activePlanId && !userData.activePlanId.startsWith('demo-')) {
             targetPlanId = userData.activePlanId
+          } else {
+            setDoc(userDocRef, { activePlanId: currentUser.uid }, { merge: true }).catch(() => {})
           }
         }
 
@@ -570,10 +582,34 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       refreshAuthToken(true)
     }, 20 * 60 * 1000)
 
-    // Re-verify session when tab becomes visible again, gains focus, or reconnects
-    const handleActivity = () => {
+    // Re-verify session and refresh remote data when tab becomes visible again, gains focus, or reconnects
+    const handleActivity = async () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         refreshAuthToken(false)
+        const currentUser = auth.currentUser
+        const planId =
+          state.activePlanId && !state.activePlanId.startsWith('demo-')
+            ? state.activePlanId
+            : currentUser?.uid
+
+        if (currentUser && planId) {
+          try {
+            const plansSnap = await getDocs(collection(db, 'plans', planId, 'mealPlans'))
+            if (!plansSnap.empty) {
+              const remotePlans: Record<DateKey, DayPlan> = {}
+              plansSnap.forEach((d) => {
+                remotePlans[d.id as DateKey] = d.data() as DayPlan
+              })
+              setState((s) => {
+                const nextPlans = { ...s.plans, ...remotePlans }
+                savePWADataToCache({ plans: nextPlans })
+                return { ...s, plans: nextPlans }
+              })
+            }
+          } catch (err) {
+            console.warn('[Sync] Ciche odświeżenie planu przy powrocie:', err)
+          }
+        }
       }
     }
 
@@ -587,13 +623,14 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('focus', handleActivity)
       window.removeEventListener('online', handleActivity)
     }
-  }, [])
+  }, [state.activePlanId])
 
   // Real-time synchronization for collaborative shared plan
   useEffect(() => {
+    if (!authReady) return
     const activePlanId = state.activePlanId
-    const currentUser = state.user
-    if (!currentUser || !activePlanId) return
+    const currentUser = auth.currentUser || state.user
+    if (!currentUser || !activePlanId || activePlanId.startsWith('demo-')) return
 
     // 1. Listen to shared plan metadata (members count, share code, member details, etc.)
     const planDocRef = doc(db, 'plans', activePlanId)
@@ -654,10 +691,14 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
           remotePlans[plan.date] = plan
         })
         if (Object.keys(remotePlans).length > 0) {
-          setState((s) => ({
-            ...s,
-            plans: { ...s.plans, ...remotePlans },
-          }))
+          setState((s) => {
+            const nextPlans = { ...s.plans, ...remotePlans }
+            savePWADataToCache({ plans: nextPlans })
+            return {
+              ...s,
+              plans: nextPlans,
+            }
+          })
         }
       },
       (err) => console.warn('Meal plans listener error:', err),
@@ -673,10 +714,13 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         snapshot.forEach((docSnap) => {
           remoteRecipes.push(docSnap.data() as Recipe)
         })
-        setState((s) => ({
-          ...s,
-          recipes: remoteRecipes,
-        }))
+        setState((s) => {
+          savePWADataToCache({ recipes: remoteRecipes })
+          return {
+            ...s,
+            recipes: remoteRecipes,
+          }
+        })
       },
       (err) => console.warn('Recipes listener error:', err),
     )
@@ -686,7 +730,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       unsubMealPlans()
       unsubRecipes()
     }
-  }, [state.activePlanId, state.user?.uid])
+  }, [authReady, state.activePlanId, state.user?.uid])
 
   const setSelectedWeightAccountUid = useCallback((uid: string) => {
     if (typeof window !== 'undefined') {
@@ -751,13 +795,27 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       const currentUser = auth.currentUser
       if (!currentUser) return // Guest mode: zero quota consumed
 
-      const targetPlanId = state.activePlanId || currentUser.uid
+      const targetPlanId =
+        state.activePlanId && !state.activePlanId.startsWith('demo-')
+          ? state.activePlanId
+          : currentUser.uid
       const timerKey = `${targetPlanId}_${date}`
       const timer = debounceTimers.current.get(timerKey)
       if (timer) clearTimeout(timer)
 
       const newTimer = setTimeout(async () => {
         try {
+          // Ensure parent plan document exists so collaborators and security rules work reliably
+          await setDoc(
+            doc(db, 'plans', targetPlanId),
+            {
+              id: targetPlanId,
+              ownerId: currentUser.uid,
+              name: 'Mój Plan',
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true },
+          )
           const path = `plans/${targetPlanId}/mealPlans/${date}`
           await setDoc(doc(db, 'plans', targetPlanId, 'mealPlans', date), plan)
         } catch (err) {
@@ -765,7 +823,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         } finally {
           debounceTimers.current.delete(timerKey)
         }
-      }, 450)
+      }, 250)
 
       debounceTimers.current.set(timerKey, newTimer)
     },
@@ -922,9 +980,11 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
           },
         }
         persistPlanDebounced(date, updatedPlan)
+        const nextPlans = { ...s.plans, [date]: updatedPlan }
+        savePWADataToCache({ plans: nextPlans })
         return {
           ...s,
-          plans: { ...s.plans, [date]: updatedPlan },
+          plans: nextPlans,
         }
       })
     },

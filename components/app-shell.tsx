@@ -29,6 +29,7 @@ import { ShoppingView } from '@/components/shopping/shopping-view'
 import { SharePlanDialog } from '@/components/planner/share-plan-dialog'
 import { PWAInstallButton } from '@/components/pwa-install-button'
 import { OfflineIndicator } from '@/components/offline-indicator'
+import { AuthRequiredDialog } from '@/components/auth-required-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -384,6 +385,9 @@ export function AppShell() {
 
       {/* Multi-Account Shared Plan Pairing Dialog */}
       <SharePlanDialog open={shareDialogOpen} onOpenChange={setShareDialogOpen} />
+
+      {/* Enforced Login Dialog when user is logged out */}
+      <AuthRequiredDialog />
 
       {/* Connectivity Status Indicator */}
       <OfflineIndicator />

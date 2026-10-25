@@ -54,6 +54,17 @@ service cloud.firestore {
       }
     }
 
+    function isPlanCollaborator(planId) {
+      return isSignedIn() && (
+        request.auth.uid == planId ||
+        (exists(/databases/$(database)/documents/plans/$(planId)) && (
+          request.auth.uid == get(/databases/$(database)/documents/plans/$(planId)).data.ownerId ||
+          (get(/databases/$(database)/documents/plans/$(planId)).data.members is list &&
+           request.auth.uid in get(/databases/$(database)/documents/plans/$(planId)).data.members)
+        ))
+      );
+    }
+
     // Shared Plans (allows multiple accounts to collaborate on the same meal plan)
     match /plans/{planId} {
       allow read: if isSignedIn();
@@ -70,30 +81,16 @@ service cloud.firestore {
 
       // Collaborative Meal Plans for this plan
       match /mealPlans/{date} {
-        allow read, delete: if isSignedIn() && (
-          request.auth.uid == planId ||
-          request.auth.uid == get(/databases/$(database)/documents/plans/$(planId)).data.ownerId ||
-          request.auth.uid in get(/databases/$(database)/documents/plans/$(planId)).data.members
-        );
-        allow create, update: if isSignedIn() && isValidDate(date) && (
-          request.auth.uid == planId ||
-          request.auth.uid == get(/databases/$(database)/documents/plans/$(planId)).data.ownerId ||
-          request.auth.uid in get(/databases/$(database)/documents/plans/$(planId)).data.members
-        );
+        allow read: if isSignedIn();
+        allow create, update: if isPlanCollaborator(planId) && isValidDate(date);
+        allow delete: if isPlanCollaborator(planId);
       }
 
       // Collaborative Recipes for this plan
       match /recipes/{recipeId} {
-        allow read, delete: if isSignedIn() && (
-          request.auth.uid == planId ||
-          request.auth.uid == get(/databases/$(database)/documents/plans/$(planId)).data.ownerId ||
-          request.auth.uid in get(/databases/$(database)/documents/plans/$(planId)).data.members
-        );
-        allow create, update: if isSignedIn() && isValidId(recipeId) && (
-          request.auth.uid == planId ||
-          request.auth.uid == get(/databases/$(database)/documents/plans/$(planId)).data.ownerId ||
-          request.auth.uid in get(/databases/$(database)/documents/plans/$(planId)).data.members
-        );
+        allow read: if isSignedIn();
+        allow create, update: if isPlanCollaborator(planId) && isValidId(recipeId);
+        allow delete: if isPlanCollaborator(planId);
       }
     }
 
