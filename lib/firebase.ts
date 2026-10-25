@@ -1,12 +1,14 @@
 import { initializeApp, getApps, getApp } from 'firebase/app'
 import {
+  initializeAuth,
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
   signOut,
-  setPersistence,
   browserLocalPersistence,
   indexedDBLocalPersistence,
+  browserPopupRedirectResolver,
+  type Auth,
   type User,
 } from 'firebase/auth'
 import {
@@ -38,18 +40,21 @@ try {
   firestoreInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId)
 }
 export const db: Firestore = firestoreInstance
-export const auth = getAuth(app)
-
-// Enforce durable persistence so PWA stays logged in indefinitely across
-// app closures, OS app-switching, device sleep, and offline moments.
-// Prioritize indexedDBLocalPersistence (standard for standalone PWAs) with browserLocalPersistence fallback.
-if (typeof window !== 'undefined') {
-  setPersistence(auth, indexedDBLocalPersistence)
-    .catch(() => setPersistence(auth, browserLocalPersistence))
-    .catch((err) => {
-      console.warn('[Firebase Auth] Trwałość sesji ostrzeżenie:', err)
+let authInstance: Auth
+try {
+  if (typeof window !== 'undefined') {
+    authInstance = initializeAuth(app, {
+      persistence: [indexedDBLocalPersistence, browserLocalPersistence],
+      popupRedirectResolver: browserPopupRedirectResolver,
     })
+  } else {
+    authInstance = getAuth(app)
+  }
+} catch {
+  authInstance = getAuth(app)
 }
+
+export const auth: Auth = authInstance
 
 export const googleProvider = new GoogleAuthProvider()
 googleProvider.setCustomParameters({ prompt: 'select_account' })

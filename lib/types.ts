@@ -40,6 +40,7 @@ export interface Recipe {
   mealTypes: MealSlot[]
   ingredients: Ingredient[]
   createdAt: string
+  updatedAt?: number
   /** Where the recipe came from: a URL or a book/person reference. */
   pochodzenie: string
   czyUlubiony: boolean
@@ -55,6 +56,7 @@ export interface PlannedMeal {
 export interface DayPlan {
   date: DateKey
   meals: Record<MealSlot, PlannedMeal[]>
+  updatedAt?: number
 }
 
 export interface Goals {

@@ -198,6 +198,38 @@ export function clearPWASession() {
 
 const PlannerContext = createContext<(PlannerState & PlannerActions) | null>(null)
 
+/**
+ * Merges plans strictly respecting timestamps (updatedAt):
+ * - If incoming plan has a higher or equal updatedAt timestamp, incoming wins.
+ * - If local plan has a strictly higher timestamp (e.g. edited locally while offline/debouncing), local wins.
+ * - If current plan was an uninitialized/dummy template (updatedAt === 0), incoming always wins.
+ */
+export function mergePlansWithTimestamps(
+  current: Record<DateKey, DayPlan>,
+  incoming: Record<DateKey, DayPlan>,
+): Record<DateKey, DayPlan> {
+  const merged: Record<DateKey, DayPlan> = { ...current }
+
+  for (const [date, incomingPlan] of Object.entries(incoming)) {
+    const existing = current[date]
+    if (!existing) {
+      merged[date] = incomingPlan
+      continue
+    }
+
+    const currentTs = Number(existing.updatedAt) || 0
+    const incomingTs = Number(incomingPlan.updatedAt) || 0
+
+    if (incomingTs >= currentTs || currentTs === 0) {
+      merged[date] = incomingPlan
+    } else {
+      console.log(`[Sync Timestamp] Zachowano nowszą wersję lokalną dla ${date} (${currentTs} > ${incomingTs})`)
+    }
+  }
+
+  return merged
+}
+
 function createInitialState(): PlannerState {
   const today = new Date()
   return {
@@ -275,12 +307,12 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         return {
           ...s,
           user: optimisticUser,
-          isLoadingAuth: false,
+          isLoadingAuth: true,
           activePlanId: safePlanId,
           goals: cachedData?.goals || s.goals,
           weights: cachedData?.weights && cachedData.weights.length > 0 ? cachedData.weights : s.weights,
           recipes: cachedData?.recipes && cachedData.recipes.length > 0 ? cachedData.recipes : s.recipes,
-          plans: cachedData?.plans && Object.keys(cachedData.plans).length > 0 ? { ...s.plans, ...cachedData.plans } : s.plans,
+          plans: cachedData?.plans && Object.keys(cachedData.plans).length > 0 ? cachedData.plans : s.plans,
           sharedPlanInfo: cachedData?.sharedPlanInfo || s.sharedPlanInfo,
         }
       })
@@ -291,6 +323,8 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       if (cachedData?.partnerWeights) {
         setPartnerWeights((prev) => ({ ...prev, ...cachedData.partnerWeights }))
       }
+    } else {
+      setState((s) => ({ ...s, isLoadingAuth: false }))
     }
   }, [])
 
@@ -303,25 +337,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (!currentUser) {
-        const isExplicitLogout =
-          typeof window !== 'undefined' && localStorage.getItem(PWA_EXPLICIT_LOGOUT_KEY) === 'true'
-        const cachedSession = getStoredPWASession()
-
-        // PWA Persistent Login Guard:
-        // If the user previously logged in and has not explicitly clicked "Wyloguj",
-        // preserve the offline session across app restarts, device sleep, and offline moments!
-        if (!isExplicitLogout && cachedSession) {
-          console.log('[PWA Auth] Zachowano sesję PWA w trybie trwałym/offline:', cachedSession.email || cachedSession.uid)
-          setState((s) => ({
-            ...s,
-            isLoadingAuth: false,
-            isSyncing: false,
-          }))
-          setAuthReady(true)
-          return
-        }
-
-        // Only revert to demo state if user deliberately clicked logout or has no saved session
+        clearPWASession()
         setState((s) => ({
           ...s,
           user: null,
@@ -520,22 +536,13 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
             const planData = d.data() as DayPlan
             loadedPlans[planData.date] = planData
           })
-        } else {
-          // Fallback to user mealPlans
-          const userPlansRef = collection(db, 'users', currentUser.uid, 'mealPlans')
-          const userPlansSnap = await getDocs(userPlansRef)
-          if (!userPlansSnap.empty) {
-            userPlansSnap.forEach((d) => {
-              const planData = d.data() as DayPlan
-              loadedPlans[planData.date] = planData
-              // Copy to shared plan
-              setDoc(doc(db, 'plans', targetPlanId, 'mealPlans', planData.date), planData).catch(() => {})
-            })
-          }
         }
 
         setState((s) => {
-          const finalPlans = Object.keys(loadedPlans).length > 0 ? { ...s.plans, ...loadedPlans } : s.plans
+          // If previous state had demo/dummy plans, discard them so only real user plans are kept
+          const isDemoActive = !s.user || s.activePlanId === 'demo-shared-plan' || s.activePlanId.startsWith('demo-')
+          const basePlans = isDemoActive ? {} : s.plans
+          const finalPlans = mergePlansWithTimestamps(basePlans, loadedPlans)
           const finalRecipes = loadedRecipes.length > 0 ? loadedRecipes : s.recipes
           savePWADataToCache({
             activePlanId: targetPlanId,
@@ -601,7 +608,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
                 remotePlans[d.id as DateKey] = d.data() as DayPlan
               })
               setState((s) => {
-                const nextPlans = { ...s.plans, ...remotePlans }
+                const nextPlans = mergePlansWithTimestamps(s.plans, remotePlans)
                 savePWADataToCache({ plans: nextPlans })
                 return { ...s, plans: nextPlans }
               })
@@ -692,7 +699,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         })
         if (Object.keys(remotePlans).length > 0) {
           setState((s) => {
-            const nextPlans = { ...s.plans, ...remotePlans }
+            const nextPlans = mergePlansWithTimestamps(s.plans, remotePlans)
             savePWADataToCache({ plans: nextPlans })
             return {
               ...s,
@@ -803,6 +810,12 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       const timer = debounceTimers.current.get(timerKey)
       if (timer) clearTimeout(timer)
 
+      const payload: DayPlan = {
+        ...plan,
+        date,
+        updatedAt: plan.updatedAt || Date.now(),
+      }
+
       const newTimer = setTimeout(async () => {
         try {
           // Ensure parent plan document exists so collaborators and security rules work reliably
@@ -812,12 +825,12 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
               id: targetPlanId,
               ownerId: currentUser.uid,
               name: 'Mój Plan',
-              updatedAt: new Date().toISOString(),
+              updatedAt: Date.now(),
             },
             { merge: true },
           )
           const path = `plans/${targetPlanId}/mealPlans/${date}`
-          await setDoc(doc(db, 'plans', targetPlanId, 'mealPlans', date), plan)
+          await setDoc(doc(db, 'plans', targetPlanId, 'mealPlans', date), payload)
         } catch (err) {
           handleFirestoreError(err, OperationType.WRITE, `plans/${targetPlanId}/mealPlans/${date}`)
         } finally {
@@ -833,9 +846,15 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   const updatePlan = useCallback(
     (date: DateKey, update: (plan: DayPlan) => DayPlan) => {
       setState((s) => {
-        const updated = update(s.plans[date] ?? emptyDayPlan(date))
-        persistPlanDebounced(date, updated)
-        const nextPlans = { ...s.plans, [date]: updated }
+        const current = s.plans[date] ?? emptyDayPlan(date)
+        const updated = update(current)
+        const planWithTimestamp: DayPlan = {
+          ...updated,
+          date,
+          updatedAt: Date.now(),
+        }
+        persistPlanDebounced(date, planWithTimestamp)
+        const nextPlans = { ...s.plans, [date]: planWithTimestamp }
         savePWADataToCache({ plans: nextPlans })
         return {
           ...s,
@@ -849,10 +868,14 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   const saveRecipe = useCallback(
     (recipe: Recipe) => {
       setState((s) => {
+        const withTimestamp: Recipe = {
+          ...recipe,
+          updatedAt: Date.now(),
+        }
         const exists = s.recipes.some((r) => r.id === recipe.id)
         const nextRecipes = exists
-          ? s.recipes.map((r) => (r.id === recipe.id ? recipe : r))
-          : [recipe, ...s.recipes]
+          ? s.recipes.map((r) => (r.id === recipe.id ? withTimestamp : r))
+          : [withTimestamp, ...s.recipes]
 
         savePWADataToCache({ recipes: nextRecipes })
 
@@ -861,7 +884,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         if (currentUser) {
           const targetPlanId = s.activePlanId || currentUser.uid
           const path = `plans/${targetPlanId}/recipes/${recipe.id}`
-          setDoc(doc(db, 'plans', targetPlanId, 'recipes', recipe.id), recipe).catch((err) =>
+          setDoc(doc(db, 'plans', targetPlanId, 'recipes', recipe.id), withTimestamp).catch((err) =>
             handleFirestoreError(err, OperationType.WRITE, path),
           )
         }
@@ -974,10 +997,12 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
         const plan = s.plans[date] ?? emptyDayPlan(date)
         const updatedPlan: DayPlan = {
           ...plan,
+          date,
           meals: {
             ...plan.meals,
             [slot]: [...plan.meals[slot], plannedMealFromRecipe(recipe)],
           },
+          updatedAt: Date.now(),
         }
         persistPlanDebounced(date, updatedPlan)
         const nextPlans = { ...s.plans, [date]: updatedPlan }
@@ -1347,7 +1372,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
             membersCount: updatedMembers.length,
             isOwner: codeData.ownerUid === currentUser.uid,
           },
-          plans: Object.keys(loadedPlans).length > 0 ? { ...s.plans, ...loadedPlans } : s.plans,
+          plans: mergePlansWithTimestamps({}, loadedPlans),
           recipes: loadedRecipes.length > 0 ? loadedRecipes : s.recipes,
           isSyncing: false,
         }))

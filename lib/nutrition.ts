@@ -87,6 +87,7 @@ export function emptyDayPlan(date: string): DayPlan {
   return {
     date,
     meals: { sniadanie: [], drugieSniadanie: [], obiad: [], kolacja: [] },
+    updatedAt: 0,
   }
 }
 
