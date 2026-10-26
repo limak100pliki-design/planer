@@ -82,6 +82,8 @@ interface PlannerState {
   authError: AuthErrorInfo | null
   activePlanId: string | null
   sharedPlanInfo: SharedPlanInfo | null
+  shoppingChecked: string[]
+  shoppingUpdatedAt?: number
 }
 
 interface PlannerActions {
@@ -108,6 +110,9 @@ interface PlannerActions {
   joinSharedPlanWithCode: (code: string) => Promise<{ success: boolean; error?: string }>
   leaveSharedPlan: () => Promise<void>
   initDayPlan: (date: DateKey) => void
+  toggleShoppingItem: (key: string) => void
+  clearShoppingChecked: () => void
+  setShoppingChecked: (keys: string[]) => void
   importRecipesBulk: (importedRecipes: Recipe[]) => Promise<{ count: number }>
   setSelectedWeightAccountUid: (uid: string) => void
   selectedWeightAccountUid: string
@@ -136,6 +141,7 @@ export interface CachedPWAData {
   sharedPlanInfo?: SharedPlanInfo | null
   partnerGoals?: Record<string, Goals>
   partnerWeights?: Record<string, WeightEntry[]>
+  shoppingChecked?: string[]
 }
 
 export function getStoredPWASession(): CachedPWASession | null {
@@ -243,6 +249,8 @@ function createInitialState(): PlannerState {
     isSyncing: false,
     authError: null,
     activePlanId: 'demo-shared-plan',
+    shoppingChecked: [],
+    shoppingUpdatedAt: 0,
     sharedPlanInfo: {
       planId: 'demo-shared-plan',
       isShared: true,
@@ -314,6 +322,8 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
           weights: cachedData?.weights && cachedData.weights.length > 0 ? cachedData.weights : s.weights,
           recipes: cachedData?.recipes && cachedData.recipes.length > 0 ? cachedData.recipes : s.recipes,
           plans: cachedData?.plans && Object.keys(cachedData.plans).length > 0 ? cachedData.plans : s.plans,
+          shoppingChecked: Array.isArray(cachedData?.shoppingChecked) ? cachedData.shoppingChecked : s.shoppingChecked,
+          shoppingUpdatedAt: 0,
           sharedPlanInfo: cachedData?.sharedPlanInfo || s.sharedPlanInfo,
         }
       })
@@ -345,6 +355,8 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
           isLoadingAuth: false,
           isSyncing: false,
           activePlanId: 'demo-shared-plan',
+          shoppingChecked: [],
+          shoppingUpdatedAt: 0,
           sharedPlanInfo: {
             planId: 'demo-shared-plan',
             isShared: true,
@@ -539,6 +551,17 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
           })
         }
 
+        const planDocSnap = await getDoc(doc(db, 'plans', targetPlanId))
+        let loadedShoppingChecked: string[] = []
+        let loadedShoppingUpdatedAt = 0
+        if (planDocSnap.exists()) {
+          const pData = planDocSnap.data()
+          if (Array.isArray(pData.shoppingChecked)) {
+            loadedShoppingChecked = pData.shoppingChecked
+            loadedShoppingUpdatedAt = pData.shoppingUpdatedAt || 0
+          }
+        }
+
         setState((s) => {
           // If previous state had demo/dummy plans, discard them so only real user plans are kept
           const isDemoActive = !s.user || s.activePlanId === 'demo-shared-plan' || s.activePlanId.startsWith('demo-')
@@ -552,6 +575,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
             recipes: finalRecipes,
             weights: s.weights,
             goals: s.goals,
+            shoppingChecked: loadedShoppingChecked,
           })
           return {
             ...s,
@@ -559,6 +583,8 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
             sharedPlanInfo: planInfo,
             plans: finalPlans,
             recipes: finalRecipes,
+            shoppingChecked: loadedShoppingChecked,
+            shoppingUpdatedAt: loadedShoppingUpdatedAt,
             isSyncing: false,
           }
         })
@@ -671,19 +697,33 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
           }
         })
 
-        setState((s) => ({
-          ...s,
-          sharedPlanInfo: {
-            planId: activePlanId,
-            isShared: membersList.length > 1,
-            shareCode: planData.shareCode,
-            ownerId: planData.ownerId || currentUser.uid,
-            ownerName: planData.ownerName || 'Współdzielony plan',
-            membersCount: membersList.length,
-            isOwner: planData.ownerId === currentUser.uid || activePlanId === currentUser.uid,
-            members,
-          },
-        }))
+        const rawShoppingChecked = Array.isArray(planData.shoppingChecked) ? planData.shoppingChecked : []
+        const remoteShoppingUpdatedAt = Number(planData.shoppingUpdatedAt) || 0
+
+        setState((s) => {
+          const localTs = Number(s.shoppingUpdatedAt) || 0
+          const shouldUpdateShopping = remoteShoppingUpdatedAt >= localTs || localTs === 0
+          const nextShoppingChecked = shouldUpdateShopping ? rawShoppingChecked : s.shoppingChecked
+          const nextShoppingTs = shouldUpdateShopping ? remoteShoppingUpdatedAt : localTs
+
+          savePWADataToCache({ shoppingChecked: nextShoppingChecked })
+
+          return {
+            ...s,
+            shoppingChecked: nextShoppingChecked,
+            shoppingUpdatedAt: nextShoppingTs,
+            sharedPlanInfo: {
+              planId: activePlanId,
+              isShared: membersList.length > 1,
+              shareCode: planData.shareCode,
+              ownerId: planData.ownerId || currentUser.uid,
+              ownerName: planData.ownerName || 'Współdzielony plan',
+              membersCount: membersList.length,
+              isOwner: planData.ownerId === currentUser.uid || activePlanId === currentUser.uid,
+              members,
+            },
+          }
+        })
       },
       (err) => console.warn('Plan metadata listener error:', err),
     )
@@ -1052,6 +1092,112 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     },
     [persistPlanDebounced],
   )
+
+  const toggleShoppingItem = useCallback((key: string) => {
+    setState((s) => {
+      const normalizedKey = key.trim().toLowerCase()
+      const exists = s.shoppingChecked.includes(normalizedKey)
+      const nextChecked = exists
+        ? s.shoppingChecked.filter((k) => k !== normalizedKey)
+        : [...s.shoppingChecked, normalizedKey]
+      const now = Date.now()
+
+      savePWADataToCache({ shoppingChecked: nextChecked })
+
+      const currentUser = auth.currentUser
+      if (currentUser) {
+        const targetPlanId =
+          s.activePlanId && !s.activePlanId.startsWith('demo-')
+            ? s.activePlanId
+            : currentUser.uid
+        setDoc(
+          doc(db, 'plans', targetPlanId),
+          {
+            shoppingChecked: nextChecked,
+            shoppingUpdatedAt: now,
+            updatedAt: now,
+            timestamp: now,
+          },
+          { merge: true },
+        ).catch((err) => {
+          handleFirestoreError(err, OperationType.WRITE, `plans/${targetPlanId}`)
+        })
+      }
+
+      return {
+        ...s,
+        shoppingChecked: nextChecked,
+        shoppingUpdatedAt: now,
+      }
+    })
+  }, [])
+
+  const clearShoppingChecked = useCallback(() => {
+    setState((s) => {
+      const now = Date.now()
+      savePWADataToCache({ shoppingChecked: [] })
+
+      const currentUser = auth.currentUser
+      if (currentUser) {
+        const targetPlanId =
+          s.activePlanId && !s.activePlanId.startsWith('demo-')
+            ? s.activePlanId
+            : currentUser.uid
+        setDoc(
+          doc(db, 'plans', targetPlanId),
+          {
+            shoppingChecked: [],
+            shoppingUpdatedAt: now,
+            updatedAt: now,
+            timestamp: now,
+          },
+          { merge: true },
+        ).catch((err) => {
+          handleFirestoreError(err, OperationType.WRITE, `plans/${targetPlanId}`)
+        })
+      }
+
+      return {
+        ...s,
+        shoppingChecked: [],
+        shoppingUpdatedAt: now,
+      }
+    })
+  }, [])
+
+  const setShoppingChecked = useCallback((keys: string[]) => {
+    setState((s) => {
+      const normalizedKeys = keys.map((k) => k.trim().toLowerCase())
+      const now = Date.now()
+      savePWADataToCache({ shoppingChecked: normalizedKeys })
+
+      const currentUser = auth.currentUser
+      if (currentUser) {
+        const targetPlanId =
+          s.activePlanId && !s.activePlanId.startsWith('demo-')
+            ? s.activePlanId
+            : currentUser.uid
+        setDoc(
+          doc(db, 'plans', targetPlanId),
+          {
+            shoppingChecked: normalizedKeys,
+            shoppingUpdatedAt: now,
+            updatedAt: now,
+            timestamp: now,
+          },
+          { merge: true },
+        ).catch((err) => {
+          handleFirestoreError(err, OperationType.WRITE, `plans/${targetPlanId}`)
+        })
+      }
+
+      return {
+        ...s,
+        shoppingChecked: normalizedKeys,
+        shoppingUpdatedAt: now,
+      }
+    })
+  }, [])
 
   const removeMeal = useCallback(
     (date: DateKey, slot: MealSlot, mealId: string) => {
@@ -1615,6 +1761,9 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       joinSharedPlanWithCode,
       leaveSharedPlan,
       initDayPlan,
+      toggleShoppingItem,
+      clearShoppingChecked,
+      setShoppingChecked,
       importRecipesBulk,
     }),
     [
@@ -1630,6 +1779,9 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       toggleFavorite,
       addMeal,
       initDayPlan,
+      toggleShoppingItem,
+      clearShoppingChecked,
+      setShoppingChecked,
       removeMeal,
       updateIngredientGrams,
       scaleMealCalories,

@@ -1,7 +1,7 @@
 'use client'
 
 import { useId, useMemo, useState } from 'react'
-import { Check, Copy, Download, FileText, Loader2, RotateCcw } from 'lucide-react'
+import { Check, CheckCircle2, Copy, Download, FileText, Loader2, RotateCcw, Users } from 'lucide-react'
 import { usePlanner } from '@/lib/store'
 import { addDays, eachDateKey, startOfWeek, toDateKey } from '@/lib/date'
 import { formatWeight, MEAL_SLOTS } from '@/lib/nutrition'
@@ -26,15 +26,17 @@ function rangeForWeek(offsetWeeks: number) {
 }
 
 export function ShoppingView() {
-  const { plans } = usePlanner()
+  const { plans, shoppingChecked, toggleShoppingItem, clearShoppingChecked, sharedPlanInfo } = usePlanner()
   const id = useId()
   const [range, setRange] = useState(() => rangeForWeek(0))
-  const [checked, setChecked] = useState<Set<string>>(new Set())
   const [copied, setCopied] = useState(false)
   const [isExportingPdf, setIsExportingPdf] = useState(false)
   const [pdfSuccess, setPdfSuccess] = useState(false)
 
-  const { items, mealCount } = useMemo(() => {
+  // O(1) set lookup for fast checking
+  const checkedSet = useMemo(() => new Set(shoppingChecked.map((k) => k.toLowerCase())), [shoppingChecked])
+
+  const { items, remainingItems, checkedItems, mealCount } = useMemo(() => {
     const map = new Map<string, ShoppingItem>()
     let meals = 0
     for (const key of eachDateKey(range.from, range.to)) {
@@ -56,21 +58,26 @@ export function ShoppingView() {
         }
       }
     }
+
+    const all = [...map.values()]
+
+    // Separate active (unbought) items and completed (bought) items
+    const remaining = all
+      .filter((i) => !checkedSet.has(i.key))
+      .sort((a, b) => a.name.localeCompare(b.name, 'pl'))
+
+    const checked = all
+      .filter((i) => checkedSet.has(i.key))
+      .sort((a, b) => a.name.localeCompare(b.name, 'pl'))
+
+    // Checked items systematically move to the bottom of the list!
     return {
-      items: [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'pl')),
+      items: [...remaining, ...checked],
+      remainingItems: remaining,
+      checkedItems: checked,
       mealCount: meals,
     }
-  }, [plans, range])
-
-  const toggle = (key: string) =>
-    setChecked((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-
-  const clearChecked = () => setChecked(new Set())
+  }, [plans, range, checkedSet])
 
   const presets = [
     { label: 'Ten tydzień', ...rangeForWeek(0) },
@@ -78,10 +85,8 @@ export function ShoppingView() {
     { label: 'Poprzedni tydzień', ...rangeForWeek(-1) },
   ]
 
-  const remaining = items.filter((i) => !checked.has(i.key))
-
   const copyList = async () => {
-    const text = remaining.map((i) => `- ${i.name}: ${formatWeight(i.grams)}`).join('\n')
+    const text = remainingItems.map((i) => `- ${i.name}: ${formatWeight(i.grams)}`).join('\n')
     try {
       await navigator.clipboard.writeText(text)
       setCopied(true)
@@ -97,7 +102,7 @@ export function ShoppingView() {
     try {
       const exportableItems = items.map((i) => ({
         ...i,
-        checked: checked.has(i.key),
+        checked: checkedSet.has(i.key),
       }))
 
       await generateShoppingListPdf({
@@ -124,6 +129,13 @@ export function ShoppingView() {
         description="Zsumowane składniki ze wszystkich posiłków zaplanowanych w wybranym okresie."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            {sharedPlanInfo?.isShared && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                <Users className="size-3" />
+                Współdzielona na żywo
+              </span>
+            )}
+
             <Button
               variant="default"
               onClick={() => handleExportPdf(false)}
@@ -140,7 +152,7 @@ export function ShoppingView() {
               {isExportingPdf ? 'Generowanie...' : pdfSuccess ? 'Pobrano PDF' : 'Eksportuj do PDF'}
             </Button>
 
-            <Button variant="outline" onClick={copyList} disabled={remaining.length === 0} className="gap-2">
+            <Button variant="outline" onClick={copyList} disabled={remainingItems.length === 0} className="gap-2">
               {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
               {copied ? 'Skopiowano' : 'Kopiuj listę'}
             </Button>
@@ -193,9 +205,9 @@ export function ShoppingView() {
             <p className="text-sm font-medium text-foreground" role="status">
               {mealCount} {mealCount === 1 ? 'posiłek' : mealCount >= 2 && mealCount <= 4 ? 'posiłki' : 'posiłków'} · {items.length} {items.length === 1 ? 'produkt' : 'produktów'}
             </p>
-            {checked.size > 0 && (
+            {checkedItems.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                Kupiono {checked.size} z {items.length}
+                Kupiono {checkedItems.length} z {items.length} ({Math.round((checkedItems.length / items.length) * 100)}%)
               </p>
             )}
           </div>
@@ -211,32 +223,32 @@ export function ShoppingView() {
           {/* Quick bar with PDF export options & progress */}
           <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-muted-foreground">
             <span>
-              {checked.size > 0 ? (
+              {checkedItems.length > 0 ? (
                 <>
                   Pozostało do kupienia:{' '}
-                  <strong className="text-foreground">{remaining.length}</strong> z {items.length}
+                  <strong className="text-foreground">{remainingItems.length}</strong> z {items.length}
                 </>
               ) : (
-                'Zaznacz produkty kupione w sklepie'
+                'Zaznacz produkty kupione w sklepie — automatycznie przejdą na dół listy'
               )}
             </span>
 
             <div className="flex items-center gap-3">
-              {checked.size > 0 && (
+              {checkedItems.length > 0 && (
                 <>
                   <button
                     type="button"
                     onClick={() => handleExportPdf(true)}
-                    disabled={remaining.length === 0 || isExportingPdf}
+                    disabled={remainingItems.length === 0 || isExportingPdf}
                     className="flex items-center gap-1 text-primary hover:underline"
                   >
                     <Download className="size-3" />
-                    Pobierz tylko niekupione ({remaining.length})
+                    Pobierz tylko niekupione ({remainingItems.length})
                   </button>
 
                   <button
                     type="button"
-                    onClick={clearChecked}
+                    onClick={clearShoppingChecked}
                     className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
                   >
                     <RotateCcw className="size-3" />
@@ -247,36 +259,74 @@ export function ShoppingView() {
             </div>
           </div>
 
-          <Card className="gap-0 p-0">
+          <Card className="gap-0 p-0 overflow-hidden">
             <ul className="divide-y">
-              {items.map((item) => {
-                const done = checked.has(item.key)
+              {/* Unchecked (active) items at the top */}
+              {remainingItems.map((item) => {
                 const inputId = `${id}-${item.key}`
                 return (
-                  <li key={item.key}>
+                  <li key={item.key} className="transition-colors hover:bg-muted/40">
                     <label
                       htmlFor={inputId}
-                      className="flex cursor-pointer items-center gap-3 px-5 py-3 transition-colors hover:bg-muted/50"
+                      className="flex cursor-pointer items-center gap-3 px-5 py-3 select-none"
                     >
                       <input
                         id={inputId}
                         type="checkbox"
-                        checked={done}
-                        onChange={() => toggle(item.key)}
-                        className="size-4 shrink-0 accent-primary"
+                        checked={false}
+                        onChange={() => toggleShoppingItem(item.key)}
+                        className="size-4 shrink-0 rounded accent-primary cursor-pointer"
                       />
-                      <span className={cn('flex-1 text-sm', done && 'text-muted-foreground line-through')}>
+                      <span className="flex-1 text-sm font-medium text-foreground">
                         {item.name}
-                        <span className="ml-2 text-xs text-muted-foreground no-underline">
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">
                           w {item.usedIn} {item.usedIn === 1 ? 'posiłku' : 'posiłkach'}
                         </span>
                       </span>
-                      <span
-                        className={cn(
-                          'text-sm font-semibold tabular-nums',
-                          done && 'font-normal text-muted-foreground line-through',
-                        )}
-                      >
+                      <span className="text-sm font-semibold tabular-nums text-foreground">
+                        {formatWeight(item.grams)}
+                      </span>
+                    </label>
+                  </li>
+                )
+              })}
+
+              {/* Section divider when items have been checked */}
+              {checkedItems.length > 0 && (
+                <li className="flex items-center justify-between bg-muted/60 px-5 py-2.5 text-xs font-semibold text-muted-foreground border-y border-border/70">
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 className="size-3.5 text-primary" />
+                    Kupione produkty ({checkedItems.length})
+                  </span>
+                  <span className="text-[11px] font-normal text-muted-foreground/80">
+                    Kliknij, aby odznaczyć i przywrócić na górę
+                  </span>
+                </li>
+              )}
+
+              {/* Checked items at the bottom */}
+              {checkedItems.map((item) => {
+                const inputId = `${id}-${item.key}`
+                return (
+                  <li key={item.key} className="bg-muted/15 transition-colors hover:bg-muted/30">
+                    <label
+                      htmlFor={inputId}
+                      className="flex cursor-pointer items-center gap-3 px-5 py-3 select-none opacity-80"
+                    >
+                      <input
+                        id={inputId}
+                        type="checkbox"
+                        checked={true}
+                        onChange={() => toggleShoppingItem(item.key)}
+                        className="size-4 shrink-0 rounded accent-primary cursor-pointer"
+                      />
+                      <span className="flex-1 text-sm text-muted-foreground line-through">
+                        {item.name}
+                        <span className="ml-2 text-xs text-muted-foreground/70 no-underline">
+                          w {item.usedIn} {item.usedIn === 1 ? 'posiłku' : 'posiłkach'}
+                        </span>
+                      </span>
+                      <span className="text-sm font-normal tabular-nums text-muted-foreground line-through">
                         {formatWeight(item.grams)}
                       </span>
                     </label>
