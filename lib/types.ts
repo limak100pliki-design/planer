@@ -69,11 +69,16 @@ export interface Goals {
   targetWeightKg: number
 }
 
+export type BloodSugarContext = 'fasting' | 'postprandial' | 'before_bed' | 'random'
+
 export interface WeightEntry {
   date: DateKey
   weightKg: number
   waistCm?: number
   hipsCm?: number
+  bloodSugarMgDl?: number
+  bloodSugarContext?: BloodSugarContext
+  bloodSugarNote?: string
 }
 
 export interface UserProfile {

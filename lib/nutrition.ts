@@ -158,3 +158,119 @@ export function getNutritionStatus(actualKcal: number, targetKcal: number): Nutr
     return { diff, percent, state: 'over', label: `Przekroczono o ${formatNumber(diff)} kcal` }
   }
 }
+
+export type BloodSugarStatus = 'low' | 'normal' | 'elevated' | 'high'
+
+export const BLOOD_SUGAR_CONTEXT_LABELS: Record<string, string> = {
+  fasting: 'Na czczo',
+  postprandial: 'Po posiłku',
+  before_bed: 'Przed snem',
+  random: 'W ciągu dnia',
+}
+
+export interface BloodSugarEvaluation {
+  status: BloodSugarStatus
+  label: string
+  color: string
+  badgeClass: string
+  description: string
+}
+
+export function getBloodSugarStatus(mgDl: number, context: string = 'fasting'): BloodSugarEvaluation {
+  if (mgDl < 70) {
+    return {
+      status: 'low',
+      label: 'Hipoglikemia (<70)',
+      color: '#f59e0b',
+      badgeClass: 'text-amber-600 bg-amber-500/10 border-amber-500/30',
+      description: 'Zbyt niski cukier (hipoglikemia)',
+    }
+  }
+
+  if (context === 'fasting') {
+    if (mgDl <= 99) {
+      return {
+        status: 'normal',
+        label: 'W normie (70–99)',
+        color: '#10b981',
+        badgeClass: 'text-emerald-600 bg-emerald-500/10 border-emerald-500/30',
+        description: 'Prawidłowa glikemia na czczo',
+      }
+    }
+    if (mgDl <= 125) {
+      return {
+        status: 'elevated',
+        label: 'Podwyższony (100–125)',
+        color: '#f97316',
+        badgeClass: 'text-orange-600 bg-orange-500/10 border-orange-500/30',
+        description: 'Nieprawidłowa glikemia na czczo (stan przedcukrzycowy)',
+      }
+    }
+    return {
+      status: 'high',
+      label: 'Wysoki (≥126)',
+      color: '#ef4444',
+      badgeClass: 'text-rose-600 bg-rose-500/10 border-rose-500/30',
+      description: 'Cukier powyżej normy na czczo',
+    }
+  }
+
+  if (context === 'postprandial') {
+    if (mgDl < 140) {
+      return {
+        status: 'normal',
+        label: 'W normie (<140)',
+        color: '#10b981',
+        badgeClass: 'text-emerald-600 bg-emerald-500/10 border-emerald-500/30',
+        description: 'Prawidłowy cukier po posiłku',
+      }
+    }
+    if (mgDl < 200) {
+      return {
+        status: 'elevated',
+        label: 'Podwyższony (140–199)',
+        color: '#f97316',
+        badgeClass: 'text-orange-600 bg-orange-500/10 border-orange-500/30',
+        description: 'Podwyższona glikemia poposiłkowa',
+      }
+    }
+    return {
+      status: 'high',
+      label: 'Wysoki (≥200)',
+      color: '#ef4444',
+      badgeClass: 'text-rose-600 bg-rose-500/10 border-rose-500/30',
+      description: 'Wysoki cukier poposiłkowy',
+    }
+  }
+
+  // przed snem lub w ciągu dnia
+  if (mgDl <= 140) {
+    return {
+      status: 'normal',
+      label: 'W normie',
+      color: '#10b981',
+      badgeClass: 'text-emerald-600 bg-emerald-500/10 border-emerald-500/30',
+      description: 'Prawidłowy poziom glukozy',
+    }
+  }
+  if (mgDl < 180) {
+    return {
+      status: 'elevated',
+      label: 'Podwyższony',
+      color: '#f97316',
+      badgeClass: 'text-orange-600 bg-orange-500/10 border-orange-500/30',
+      description: 'Cukier lekko podwyższony',
+    }
+  }
+  return {
+    status: 'high',
+    label: 'Wysoki',
+    color: '#ef4444',
+    badgeClass: 'text-rose-600 bg-rose-500/10 border-rose-500/30',
+    description: 'Wysoki poziom cukru',
+  }
+}
+
+export function mgDlToMmol(mgDl: number): number {
+  return Math.round((mgDl / 18.0182) * 10) / 10
+}
