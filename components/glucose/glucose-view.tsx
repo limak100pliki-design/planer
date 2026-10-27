@@ -1,34 +1,25 @@
 'use client'
 
-import { useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import {
   Area,
   AreaChart,
   CartesianGrid,
-  Line,
-  LineChart,
-  ReferenceArea,
   ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
   XAxis,
   YAxis,
 } from 'recharts'
 import {
-  Activity,
   AlertTriangle,
-  ArrowDown,
-  ArrowUp,
   Calendar,
   Check,
   CheckCircle2,
-  Clock,
   Droplet,
-  Info,
+  Droplets,
+  HelpCircle,
   Pencil,
   Plus,
   RotateCcw,
-  Sparkles,
   Trash2,
   TrendingDown,
   TrendingUp,
@@ -37,8 +28,14 @@ import {
   X,
 } from 'lucide-react'
 import { usePlanner } from '@/lib/store'
-import { fromDateKey, toDateKey } from '@/lib/date'
-import { formatNumber } from '@/lib/nutrition'
+import { formatShortDate, fromDateKey, toDateKey } from '@/lib/date'
+import {
+  BLOOD_SUGAR_CONTEXT_LABELS,
+  formatNumber,
+  getBloodSugarStatus,
+  mgDlToMmol,
+} from '@/lib/nutrition'
+import type { BloodSugarContext, WeightEntry } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { SectionHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -46,32 +43,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import {
-  classifyGlucose,
-  estimateHbA1c,
-  GLUCOSE_CONTEXT_LABELS,
-  mgDlToMmol,
-  mmolToMgDl,
-  type GlucoseClassification,
-} from '@/lib/glucose'
-import type { DateKey, GlucoseContext, GlucoseEntry, MealSlot } from '@/lib/types'
+import { ChartContainer, ChartTooltip, type ChartConfig } from '@/components/ui/chart'
 
-type TimeframeOption = '7' | '14' | '30' | 'all'
-type UnitOption = 'mg/dL' | 'mmol/L'
+const chartConfig = {
+  bloodSugarMgDl: { label: 'Cukier (mg/dL)', color: '#ec4899' },
+} satisfies ChartConfig
+
+type FilterContext = 'all' | 'fasting' | 'postprandial' | 'before_bed' | 'random'
+type FilterRange = 'all' | '14d' | '30d'
 
 export function GlucoseView() {
   const {
-    glucoseLogs,
-    logGlucose,
-    removeGlucose,
+    weights,
+    logWeight,
+    removeWeight,
     sharedPlanInfo,
     planMembers,
     selectedWeightAccountUid,
@@ -80,828 +65,747 @@ export function GlucoseView() {
   } = usePlanner()
 
   const id = useId()
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editingEntry, setEditingEntry] = useState<GlucoseEntry | null>(null)
-  const [timeframe, setTimeframe] = useState<TimeframeOption>('14')
-  const [unit, setUnit] = useState<UnitOption>('mg/dL')
+  const [mounted, setMounted] = useState(false)
+  const [date, setDate] = useState(() => toDateKey(new Date()))
+  const [sugar, setSugar] = useState('')
+  const [context, setContext] = useState<BloodSugarContext>('fasting')
+  const [note, setNote] = useState('')
+  const [editingDate, setEditingDate] = useState<string | null>(null)
+  const [contextFilter, setContextFilter] = useState<FilterContext>('all')
+  const [rangeFilter, setRangeFilter] = useState<FilterRange>('all')
+  const [showGuidelines, setShowGuidelines] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  // Form State
-  const [formDate, setFormDate] = useState(() => toDateKey(new Date()))
-  const [formTime, setFormTime] = useState(() => {
-    const now = new Date()
-    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  })
-  const [formValue, setFormValue] = useState('')
-  const [formContext, setFormContext] = useState<GlucoseContext>('na_czczo')
-  const [formMealSlot, setFormMealSlot] = useState<MealSlot | 'none'>('none')
-  const [formNote, setFormNote] = useState('')
-  const [formError, setFormError] = useState<string | null>(null)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
-  // Filtered entries by timeframe
-  const sortedLogs = useMemo(() => {
-    return [...glucoseLogs].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
-  }, [glucoseLogs])
+  // All entries that have a valid glucose measurement
+  const allSugarEntries = useMemo(() => {
+    return (weights || [])
+      .filter((w) => typeof w.bloodSugarMgDl === 'number' && !Number.isNaN(w.bloodSugarMgDl))
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }, [weights])
 
-  const filteredLogs = useMemo(() => {
-    if (timeframe === 'all') return sortedLogs
-    const days = parseInt(timeframe, 10)
-    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
-    return sortedLogs.filter((l) => (l.timestamp || 0) >= cutoff)
-  }, [sortedLogs, timeframe])
+  // Filtered entries according to current view options
+  const filteredEntries = useMemo(() => {
+    let result = [...allSugarEntries]
 
-  // Statistics calculation
-  const stats = useMemo(() => {
-    if (filteredLogs.length === 0) {
-      return {
-        count: 0,
-        average: 0,
-        min: 0,
-        max: 0,
-        latest: null as GlucoseEntry | null,
-        estimatedHbA1c: 0,
-        tir: { inNorm: 0, low: 0, high: 0 },
-      }
+    if (contextFilter !== 'all') {
+      result = result.filter((w) => (w.bloodSugarContext || 'fasting') === contextFilter)
     }
 
-    const values = filteredLogs.map((l) => l.valueMgDl)
-    const sum = values.reduce((acc, v) => acc + v, 0)
-    const average = Math.round(sum / values.length)
-    const min = Math.min(...values)
-    const max = Math.max(...values)
-    const latest = filteredLogs[filteredLogs.length - 1]
-    const estimatedHbA1c = estimateHbA1c(average)
-
-    let inNormCount = 0
-    let lowCount = 0
-    let highCount = 0
-
-    for (const log of filteredLogs) {
-      const cls = classifyGlucose(log.valueMgDl, log.context)
-      if (cls.status === 'norma') inNormCount++
-      else if (cls.status === 'hipo') lowCount++
-      else highCount++
+    if (rangeFilter !== 'all') {
+      const now = new Date()
+      const days = rangeFilter === '14d' ? 14 : 30
+      const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
+      const cutoffStr = toDateKey(cutoff)
+      result = result.filter((w) => w.date >= cutoffStr)
     }
 
-    const total = filteredLogs.length
-    const tir = {
-      inNorm: Math.round((inNormCount / total) * 100),
-      low: Math.round((lowCount / total) * 100),
-      high: Math.round((highCount / total) * 100),
-    }
+    return result
+  }, [allSugarEntries, contextFilter, rangeFilter])
 
-    return {
-      count: total,
-      average,
-      min,
-      max,
-      latest,
-      estimatedHbA1c,
-      tir,
-    }
-  }, [filteredLogs])
+  // Key clinical stats
+  const latestEntry = allSugarEntries.at(-1)
+  const latestSugar = latestEntry?.bloodSugarMgDl
+  const latestEval = latestSugar
+    ? getBloodSugarStatus(latestSugar, latestEntry?.bloodSugarContext || 'fasting')
+    : null
 
-  // Chart data formatting
+  const fastingEntries = allSugarEntries.filter((w) => (w.bloodSugarContext || 'fasting') === 'fasting')
+  const avgFasting =
+    fastingEntries.length > 0
+      ? Math.round(
+          fastingEntries.reduce((sum, w) => sum + (w.bloodSugarMgDl || 0), 0) / fastingEntries.length,
+        )
+      : null
+
+  const postprandialEntries = allSugarEntries.filter((w) => w.bloodSugarContext === 'postprandial')
+  const avgPostprandial =
+    postprandialEntries.length > 0
+      ? Math.round(
+          postprandialEntries.reduce((sum, w) => sum + (w.bloodSugarMgDl || 0), 0) /
+            postprandialEntries.length,
+        )
+      : null
+
+  const inRangeCount = allSugarEntries.filter((w) => {
+    const val = w.bloodSugarMgDl || 0
+    const ctx = w.bloodSugarContext || 'fasting'
+    const ev = getBloodSugarStatus(val, ctx)
+    return ev.status === 'normal'
+  }).length
+
+  const inRangePercent =
+    allSugarEntries.length > 0 ? Math.round((inRangeCount / allSugarEntries.length) * 100) : null
+
+  // Chart data
   const chartData = useMemo(() => {
-    return filteredLogs.map((l) => {
-      const cls = classifyGlucose(l.valueMgDl, l.context)
-      return {
-        ...l,
-        displayDate: l.date.slice(5), // MM-DD
-        displayDateTime: `${l.date.slice(5)} ${l.time}`,
-        valueDisplay: unit === 'mg/dL' ? l.valueMgDl : mgDlToMmol(l.valueMgDl),
-        status: cls.status,
-      }
-    })
-  }, [filteredLogs, unit])
+    return filteredEntries.map((w) => ({
+      ...w,
+      label: formatShortDate(fromDateKey(w.date)),
+      mmol: w.bloodSugarMgDl ? mgDlToMmol(w.bloodSugarMgDl) : null,
+    }))
+  }, [filteredEntries])
 
-  // Groups by date descending for the history log table
-  const groupedByDate = useMemo(() => {
-    const map = new Map<DateKey, GlucoseEntry[]>()
-    // iterate reversed to show newest date first
-    for (let i = sortedLogs.length - 1; i >= 0; i--) {
-      const entry = sortedLogs[i]
-      const list = map.get(entry.date)
-      if (list) {
-        list.push(entry)
-      } else {
-        map.set(entry.date, [entry])
-      }
-    }
-    return Array.from(map.entries())
-  }, [sortedLogs])
-
-  // Handlers
-  const openNewModal = () => {
-    const now = new Date()
-    setFormDate(toDateKey(now))
-    setFormTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`)
-    setFormValue('')
-    setFormContext('na_czczo')
-    setFormMealSlot('none')
-    setFormNote('')
-    setEditingEntry(null)
-    setFormError(null)
-    setModalOpen(true)
-  }
-
-  const openEditModal = (entry: GlucoseEntry) => {
-    setEditingEntry(entry)
-    setFormDate(entry.date)
-    setFormTime(entry.time)
-    setFormValue(String(unit === 'mg/dL' ? entry.valueMgDl : mgDlToMmol(entry.valueMgDl)))
-    setFormContext(entry.context)
-    setFormMealSlot(entry.mealSlot || 'none')
-    setFormNote(entry.note || '')
-    setFormError(null)
-    setModalOpen(true)
-  }
-
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    setFormError(null)
+    setError(null)
 
-    const rawNum = Number(formValue.replace(',', '.'))
-    if (!Number.isFinite(rawNum) || rawNum <= 0) {
-      setFormError('Wpisz prawidłową wartość poziomu cukru.')
+    const numSugar = Number(sugar.replace(',', '.'))
+    if (!Number.isFinite(numSugar) || numSugar < 20 || numSugar > 600) {
+      setError('Wpisz prawidłowy poziom cukru w przedziale 20 – 600 mg/dL.')
       return
     }
 
-    const valueMgDl = unit === 'mg/dL' ? Math.round(rawNum) : mmolToMgDl(rawNum)
-
-    if (valueMgDl < 20 || valueMgDl > 700) {
-      setFormError('Wartość glukozy musi mieścić się w przedziale 20 - 700 mg/dL (1.1 - 38.8 mmol/L).')
+    if (!date) {
+      setError('Wybierz datę pomiaru.')
       return
     }
 
-    if (!formDate || !formTime) {
-      setFormError('Podaj datę i godzinę pomiaru.')
-      return
+    // Merge with any existing entry for this day so we never overwrite weight/waist
+    const existing = weights.find((w) => w.date === date)
+    const newEntry: WeightEntry = {
+      ...(existing || {}),
+      date,
+      bloodSugarMgDl: Math.round(numSugar),
+      bloodSugarContext: context,
+      bloodSugarNote: note.trim() || undefined,
     }
 
-    await logGlucose({
-      id: editingEntry?.id,
-      date: formDate,
-      time: formTime,
-      valueMgDl,
-      context: formContext,
-      mealSlot: formMealSlot !== 'none' ? formMealSlot : undefined,
-      note: formNote.trim() || undefined,
-    })
+    logWeight(newEntry)
 
-    setModalOpen(false)
+    setSugar('')
+    setNote('')
+    setEditingDate(null)
   }
 
-  const handleDelete = async (idToDelete: string) => {
-    if (confirm('Czy na pewno chcesz usunąć ten pomiar cukru?')) {
-      await removeGlucose(idToDelete)
+  const handleEdit = (w: WeightEntry) => {
+    setDate(w.date)
+    setSugar(w.bloodSugarMgDl !== undefined ? String(w.bloodSugarMgDl) : '')
+    setContext(w.bloodSugarContext || 'fasting')
+    setNote(w.bloodSugarNote || '')
+    setEditingDate(w.date)
+    setError(null)
+  }
+
+  const handleCancelEdit = () => {
+    setDate(toDateKey(new Date()))
+    setSugar('')
+    setContext('fasting')
+    setNote('')
+    setEditingDate(null)
+    setError(null)
+  }
+
+  const handleDelete = (dateToDelete: string) => {
+    const existing = weights.find((w) => w.date === dateToDelete)
+    if (!existing) return
+
+    // If entry only had blood sugar and no weight/waist, completely delete the record
+    if (typeof existing.weightKg !== 'number' && typeof existing.waistCm !== 'number' && typeof existing.hipsCm !== 'number') {
+      removeWeight(dateToDelete)
+    } else {
+      // Remove only blood sugar fields and keep weight/measurements
+      const updated: WeightEntry = {
+        date: existing.date,
+        weightKg: existing.weightKg,
+        waistCm: existing.waistCm,
+        hipsCm: existing.hipsCm,
+      }
+      logWeight(updated)
+    }
+
+    if (editingDate === dateToDelete) {
+      handleCancelEdit()
     }
   }
 
-  // Live classification preview while typing
-  const livePreview = useMemo(() => {
-    const rawNum = Number(formValue.replace(',', '.'))
-    if (!Number.isFinite(rawNum) || rawNum <= 0) return null
-    const mg = unit === 'mg/dL' ? Math.round(rawNum) : mmolToMgDl(rawNum)
-    return classifyGlucose(mg, formContext)
-  }, [formValue, formContext, unit])
-
-  const latestClassification = stats.latest ? classifyGlucose(stats.latest.valueMgDl, stats.latest.context) : null
+  if (!mounted) {
+    return (
+      <div className="space-y-6">
+        <SectionHeader
+          title="Dziennik Cukru we Krwi"
+          description="Ładowanie dziennika glikemii..."
+        />
+        <div className="h-64 animate-pulse rounded-2xl bg-muted/40" />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
       <SectionHeader
-        title="Pomiary Cukru we Krwi"
-        description="Monitoruj glikemię na czczo i po posiłkach, analizuj trendy i kontroluj wskaźnik Time in Range (TIR)."
+        title="Dziennik Cukru we Krwi (Glikemia)"
+        description="Rejestruj i monitoruj poziom glukozy na czczo, po posiłkach i przed snem zgodnie ze standardami PTD."
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Unit toggle */}
-            <div className="inline-flex rounded-lg border bg-muted/40 p-0.5 text-xs font-medium">
-              <button
-                type="button"
-                onClick={() => setUnit('mg/dL')}
-                className={cn(
-                  'rounded-md px-2.5 py-1 transition-colors',
-                  unit === 'mg/dL' ? 'bg-background text-foreground shadow-2xs font-semibold' : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                mg/dL
-              </button>
-              <button
-                type="button"
-                onClick={() => setUnit('mmol/L')}
-                className={cn(
-                  'rounded-md px-2.5 py-1 transition-colors',
-                  unit === 'mmol/L' ? 'bg-background text-foreground shadow-2xs font-semibold' : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                mmol/L
-              </button>
-            </div>
-
-            {/* Account Switcher for Collaborative Plans */}
-            {planMembers.length > 1 && (
-              <div className="inline-flex items-center rounded-lg border bg-muted/40 p-0.5">
-                {planMembers.map((member) => {
-                  const isSelected = (selectedWeightAccountUid || planMembers[0]?.uid) === member.uid
-                  return (
-                    <button
-                      key={member.uid}
-                      type="button"
-                      onClick={() => setSelectedWeightAccountUid(member.uid)}
-                      className={cn(
-                        'flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
-                        isSelected
-                          ? 'bg-background text-foreground shadow-2xs font-semibold'
-                          : 'text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      <User className="size-3" />
-                      <span>{member.displayName}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-
-            <Button onClick={openNewModal} size="sm" className="gap-1.5 shadow-2xs">
-              <Plus className="size-4" />
-              <span>Dodaj pomiar</span>
-            </Button>
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowGuidelines((prev) => !prev)}
+            className="gap-1.5 text-xs"
+          >
+            <HelpCircle className="size-3.5 text-pink-500" />
+            {showGuidelines ? 'Ukryj normy PTD' : 'Pokaż normy glikemii (PTD)'}
+          </Button>
         }
       />
 
-      {/* Clinical KPI Summary Cards */}
+      {/* Multi-Account Data Source Switcher for Shared Plans */}
+      {(sharedPlanInfo?.isShared || planMembers.length > 1) && (
+        <div className="rounded-2xl border border-primary/25 bg-card/90 p-4 shadow-xs backdrop-blur">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Users className="size-4.5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Konto źródłowe pomiarów glikemii
+                  </span>
+                  <Badge variant="outline" className="text-[10px] border-primary/30 text-primary px-1.5 py-0">
+                    Konto współdzielone
+                  </Badge>
+                </div>
+                <p className="text-xs sm:text-sm text-foreground font-medium">
+                  Pomiary cukru dla:{' '}
+                  <span className="font-bold text-primary">
+                    {activeMember?.displayName || 'Wybrane konto'}
+                  </span>
+                  {activeMember?.isCurrent && (
+                    <span className="ml-1 text-xs text-muted-foreground font-normal">(Ty)</span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {/* Segmented Account Buttons */}
+            <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-border/80 bg-muted/40 p-1">
+              {planMembers.map((member) => {
+                const isSelected = member.uid === selectedWeightAccountUid
+                return (
+                  <button
+                    key={member.uid}
+                    type="button"
+                    onClick={() => setSelectedWeightAccountUid(member.uid)}
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all',
+                      isSelected
+                        ? 'bg-background text-primary shadow-xs font-semibold ring-1 ring-border/50'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-background/50',
+                    )}
+                  >
+                    <User className="size-3.5" />
+                    <span>{member.displayName}</span>
+                    {member.isCurrent && (
+                      <span className="text-[10px] opacity-75 font-normal">(Ty)</span>
+                    )}
+                    {isSelected && <Check className="size-3 text-primary ml-0.5" />}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clinical Guidelines Card (Toggleable) */}
+      {showGuidelines && (
+        <Card className="border-pink-500/30 bg-pink-500/5 p-4 transition-all">
+          <div className="flex items-start justify-between gap-2">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Droplets className="size-4 text-pink-500" />
+                <h3 className="text-sm font-semibold text-foreground">
+                  Kryteria rozpoznawania i normy glikemii (wg Polskiego Towarzystwa Diabetologicznego)
+                </h3>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Standardowe zakresy stężenia glukozy w osoczu krwi żylnej i glukometrach:
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowGuidelines(false)}
+              className="rounded p-1 text-muted-foreground hover:bg-muted"
+              aria-label="Zamknij wytyczne"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-3 text-xs">
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 space-y-1">
+              <span className="font-semibold text-emerald-700 dark:text-emerald-400">Prawidłowa glikemia</span>
+              <p className="text-foreground">
+                • <strong>Na czczo:</strong> 70 – 99 mg/dL (3.9–5.5 mmol/L)
+              </p>
+              <p className="text-foreground">
+                • <strong>Po posiłku (1-2h):</strong> &lt; 140 mg/dL (&lt; 7.8 mmol/L)
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-3 space-y-1">
+              <span className="font-semibold text-orange-700 dark:text-orange-400">Stan przedcukrzycowy</span>
+              <p className="text-foreground">
+                • <strong>Na czczo (IFG):</strong> 100 – 125 mg/dL (5.6–6.9 mmol/L)
+              </p>
+              <p className="text-foreground">
+                • <strong>Po posiłku (IGT):</strong> 140 – 199 mg/dL (7.8–11.0 mmol/L)
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 space-y-1">
+              <span className="font-semibold text-rose-700 dark:text-rose-400">Wysoki cukier / Hipoglikemia</span>
+              <p className="text-foreground">
+                • <strong>Cukrzyca:</strong> ≥ 126 mg/dL (na czczo) lub ≥ 200 mg/dL
+              </p>
+              <p className="text-foreground">
+                • <strong>Hipoglikemia:</strong> &lt; 70 mg/dL (zbyt niski cukier)
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Top statistics cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* Latest measurement */}
-        <Card className="gap-2 p-4">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span className="flex items-center gap-1 font-medium">
-              <Droplet className="size-3.5 text-rose-500" />
-              Ostatni pomiar
-            </span>
-            {stats.latest && (
-              <span className="tabular-nums">
-                {stats.latest.date === toDateKey(new Date()) ? `Dzisiaj, ${stats.latest.time}` : `${stats.latest.date} ${stats.latest.time}`}
+        <Card className="gap-1 p-4 border-pink-500/30 bg-gradient-to-br from-card to-pink-500/5">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-muted-foreground">Ostatni pomiar</p>
+            <Droplet className="size-4 text-pink-500" />
+          </div>
+          <div className="flex items-baseline justify-between gap-1">
+            <p className="text-2xl font-semibold tracking-tight tabular-nums text-foreground">
+              {latestSugar ? `${latestSugar} mg/dL` : '—'}
+            </p>
+            {latestSugar && (
+              <span className="text-xs text-muted-foreground tabular-nums">
+                ({mgDlToMmol(latestSugar)} mmol/L)
               </span>
             )}
           </div>
-          {stats.latest ? (
-            <div className="mt-1 space-y-1">
-              <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-bold tracking-tight tabular-nums">
-                  {unit === 'mg/dL' ? stats.latest.valueMgDl : mgDlToMmol(stats.latest.valueMgDl)}
-                </span>
-                <span className="text-sm font-semibold text-muted-foreground">{unit}</span>
-                {latestClassification && (
-                  <Badge variant={latestClassification.badgeVariant} className="ml-auto text-[11px]">
-                    {latestClassification.shortLabel}
-                  </Badge>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Pora: <strong>{GLUCOSE_CONTEXT_LABELS[stats.latest.context].short}</strong>
-                {stats.latest.note && ` · „${stats.latest.note}”`}
-              </p>
-            </div>
-          ) : (
-            <div className="mt-2 text-sm text-muted-foreground">Brak zarejestrowanych pomiarów</div>
-          )}
+          <div className="flex items-center justify-between text-xs pt-0.5">
+            {latestEval ? (
+              <span className={cn('text-[11px] font-medium px-2 py-0.5 rounded-md border', latestEval.badgeClass)}>
+                {latestEval.label}
+              </span>
+            ) : (
+              <span className="text-muted-foreground text-[11px]">Brak pomiarów</span>
+            )}
+            {latestEntry && (
+              <span className="text-muted-foreground text-[11px]">
+                {formatShortDate(fromDateKey(latestEntry.date))} · {BLOOD_SUGAR_CONTEXT_LABELS[latestEntry.bloodSugarContext || 'fasting']}
+              </span>
+            )}
+          </div>
         </Card>
 
-        {/* Average blood glucose */}
-        <Card className="gap-2 p-4">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span className="flex items-center gap-1 font-medium">
-              <Activity className="size-3.5 text-primary" />
-              Średnia glikemia
-            </span>
-            <span className="text-[11px] font-medium">
-              {timeframe === 'all' ? 'Wszystkie' : `Ostatnie ${timeframe} dni`}
-            </span>
+        {/* Fasting average */}
+        <Card className="gap-1 p-4">
+          <p className="text-xs font-medium text-muted-foreground">Średnia na czczo</p>
+          <div className="flex items-baseline justify-between gap-1">
+            <p className="text-2xl font-semibold tracking-tight tabular-nums text-foreground">
+              {avgFasting ? `${avgFasting} mg/dL` : '—'}
+            </p>
+            {avgFasting && (
+              <span className="text-xs text-muted-foreground tabular-nums">
+                ({mgDlToMmol(avgFasting)} mmol/L)
+              </span>
+            )}
           </div>
-          {stats.count > 0 ? (
-            <div className="mt-1 space-y-1">
-              <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-bold tracking-tight tabular-nums">
-                  {unit === 'mg/dL' ? stats.average : mgDlToMmol(stats.average)}
-                </span>
-                <span className="text-sm font-semibold text-muted-foreground">{unit}</span>
-                <span className="ml-auto text-xs text-muted-foreground tabular-nums">
-                  Zakres: {unit === 'mg/dL' ? stats.min : mgDlToMmol(stats.min)} - {unit === 'mg/dL' ? stats.max : mgDlToMmol(stats.max)}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Wyliczono z <strong>{stats.count}</strong> {stats.count === 1 ? 'pomiaru' : stats.count < 5 ? 'pomiarów' : 'pomiarów'}
-              </p>
-            </div>
-          ) : (
-            <div className="mt-2 text-sm text-muted-foreground">Brak danych w wybranym okresie</div>
-          )}
+          <p className="text-xs text-muted-foreground">
+            {fastingEntries.length > 0
+              ? `${fastingEntries.length} ${fastingEntries.length === 1 ? 'pomiar' : 'pomiarów'} (norma 70–99)`
+              : 'Norma na czczo: 70–99 mg/dL'}
+          </p>
         </Card>
 
-        {/* Estimated HbA1c */}
-        <Card className="gap-2 p-4">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span className="flex items-center gap-1 font-medium">
-              <Sparkles className="size-3.5 text-amber-500" />
-              Szacowane HbA1c
-            </span>
-            <span className="text-[11px] text-muted-foreground/80">Wzór ADAG</span>
+        {/* Postprandial average */}
+        <Card className="gap-1 p-4">
+          <p className="text-xs font-medium text-muted-foreground">Średnia po posiłkach</p>
+          <div className="flex items-baseline justify-between gap-1">
+            <p className="text-2xl font-semibold tracking-tight tabular-nums text-foreground">
+              {avgPostprandial ? `${avgPostprandial} mg/dL` : '—'}
+            </p>
+            {avgPostprandial && (
+              <span className="text-xs text-muted-foreground tabular-nums">
+                ({mgDlToMmol(avgPostprandial)} mmol/L)
+              </span>
+            )}
           </div>
-          {stats.count > 0 ? (
-            <div className="mt-1 space-y-1">
-              <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-bold tracking-tight tabular-nums text-foreground">
-                  ~{stats.estimatedHbA1c}%
-                </span>
-                <Badge
-                  variant={stats.estimatedHbA1c < 5.7 ? 'default' : stats.estimatedHbA1c < 6.5 ? 'secondary' : 'destructive'}
-                  className="ml-auto text-[11px]"
-                >
-                  {stats.estimatedHbA1c < 5.7 ? 'Prawidłowe' : stats.estimatedHbA1c < 6.5 ? 'Podwyższone' : 'Wysokie'}
-                </Badge>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Orientacyjny wskaźnik glikacji hemoglobiny z pomiarów.
-              </p>
-            </div>
-          ) : (
-            <div className="mt-2 text-sm text-muted-foreground">Wymaga dodania pomiarów</div>
-          )}
+          <p className="text-xs text-muted-foreground">
+            {postprandialEntries.length > 0
+              ? `${postprandialEntries.length} ${postprandialEntries.length === 1 ? 'pomiar' : 'pomiarów'} (norma <140)`
+              : 'Norma poposiłkowa: <140 mg/dL'}
+          </p>
         </Card>
 
         {/* Time in Range (TIR) */}
-        <Card className="gap-2 p-4">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span className="flex items-center gap-1 font-medium">
-              <CheckCircle2 className="size-3.5 text-emerald-500" />
-              Czas w normie (TIR)
-            </span>
-            <span className="font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
-              {stats.tir.inNorm}%
-            </span>
+        <Card className="gap-1 p-4">
+          <p className="text-xs font-medium text-muted-foreground">Pomiary w normie</p>
+          <div className="flex items-baseline justify-between gap-1">
+            <p className="text-2xl font-semibold tracking-tight tabular-nums text-foreground">
+              {inRangePercent !== null ? `${inRangePercent}%` : '—'}
+            </p>
+            {inRangePercent !== null && (
+              <CheckCircle2
+                className={cn('size-4', inRangePercent >= 80 ? 'text-emerald-500' : 'text-orange-500')}
+              />
+            )}
           </div>
-          {stats.count > 0 ? (
-            <div className="mt-1 space-y-2">
-              {/* Stacked bar */}
-              <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
-                {stats.tir.low > 0 && (
-                  <div
-                    style={{ width: `${stats.tir.low}%` }}
-                    className="bg-sky-500 transition-all"
-                    title={`Poniżej normy: ${stats.tir.low}%`}
-                  />
-                )}
-                {stats.tir.inNorm > 0 && (
-                  <div
-                    style={{ width: `${stats.tir.inNorm}%` }}
-                    className="bg-emerald-500 transition-all"
-                    title={`W normie: ${stats.tir.inNorm}%`}
-                  />
-                )}
-                {stats.tir.high > 0 && (
-                  <div
-                    style={{ width: `${stats.tir.high}%` }}
-                    className="bg-amber-500 transition-all"
-                    title={`Powyżej normy: ${stats.tir.high}%`}
-                  />
-                )}
-              </div>
-              <div className="flex justify-between text-[10px] text-muted-foreground tabular-nums">
-                <span className="text-sky-600 dark:text-sky-400">Niski: {stats.tir.low}%</span>
-                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Norma: {stats.tir.inNorm}%</span>
-                <span className="text-amber-600 dark:text-amber-400">Wysoki: {stats.tir.high}%</span>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-2 text-sm text-muted-foreground">Brak danych</div>
-          )}
+          <p className="text-xs text-muted-foreground">
+            {allSugarEntries.length > 0
+              ? `${inRangeCount} z ${allSugarEntries.length} pomiarów w normie`
+              : 'Wskaźnik prawidłowych wyników'}
+          </p>
         </Card>
       </div>
 
-      {/* Interactive Trend Chart Card */}
-      <Card className="p-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <CardTitle className="text-base font-semibold">Wykres Poziomu Cukru</CardTitle>
-            <CardDescription className="text-xs">
-              Trendy glikemii z wyznaczonymi granicami normy (70 – 140 mg/dL).
-            </CardDescription>
-          </div>
+      {/* Main Grid: Chart & Form */}
+      <div className="grid items-start gap-6 lg:grid-cols-[1.8fr_1fr]">
+        <Card>
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pb-3">
+            <div>
+              <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                <Droplets className="size-4 text-pink-500" />
+                Wykres Poziomu Cukru we Krwi
+              </CardTitle>
+              <CardDescription>
+                Poziomy referencyjne: dolna norma (70 mg/dL), limit na czczo (99 mg/dL), limit po posiłku (140 mg/dL).
+              </CardDescription>
+            </div>
 
-          {/* Timeframe filters */}
-          <div className="inline-flex rounded-lg border bg-muted/30 p-0.5 text-xs font-medium">
-            {(['7', '14', '30', 'all'] as TimeframeOption[]).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setTimeframe(t)}
-                className={cn(
-                  'rounded-md px-3 py-1 transition-colors',
-                  timeframe === t ? 'bg-background text-foreground shadow-2xs font-semibold' : 'text-muted-foreground hover:text-foreground',
-                )}
+            {/* Filter buttons */}
+            <div className="flex flex-wrap items-center gap-1 rounded-lg border bg-muted/40 p-1">
+              <Button
+                variant={contextFilter === 'all' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setContextFilter('all')}
               >
-                {t === 'all' ? 'Wszystkie' : `${t} dni`}
-              </button>
-            ))}
-          </div>
-        </div>
+                Wszystkie
+              </Button>
+              <Button
+                variant={contextFilter === 'fasting' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setContextFilter('fasting')}
+              >
+                Na czczo
+              </Button>
+              <Button
+                variant={contextFilter === 'postprandial' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setContextFilter('postprandial')}
+              >
+                Po posiłku
+              </Button>
+            </div>
+          </CardHeader>
 
-        {chartData.length === 0 ? (
-          <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-dashed text-center text-sm text-muted-foreground">
-            <Droplet className="mb-2 size-8 text-muted-foreground/40" />
-            <p className="font-medium text-foreground">Brak pomiarów w wybranym przedziale</p>
-            <p className="mt-1 text-xs">Kliknij „Dodaj pomiar”, aby wprowadzić pierwszy wynik.</p>
-          </div>
-        ) : (
-          <div className="h-72 w-full pt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" className="text-border/40" />
-                <XAxis
-                  dataKey="displayDateTime"
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={8}
-                  tick={{ fontSize: 11, fill: 'currentColor' }}
-                  className="text-muted-foreground"
-                />
-                <YAxis
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={8}
-                  domain={[
-                    unit === 'mg/dL' ? 50 : 2.5,
-                    unit === 'mg/dL' ? (dataMax: number) => Math.max(dataMax + 20, 200) : (dataMax: number) => Math.max(dataMax + 1.5, 11),
-                  ]}
-                  tick={{ fontSize: 11, fill: 'currentColor' }}
-                  className="text-muted-foreground"
-                />
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (!active || !payload || !payload.length) return null
-                    const d = payload[0].payload as GlucoseEntry & { displayDateTime: string; valueDisplay: number }
-                    const cls = classifyGlucose(d.valueMgDl, d.context)
-                    return (
-                      <div className="rounded-xl border bg-popover/95 p-3 text-xs shadow-lg backdrop-blur">
-                        <div className="flex items-center justify-between gap-3 border-b pb-1.5 font-medium text-foreground">
-                          <span>{d.date} o {d.time}</span>
-                          <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold', cls.bgClass, cls.colorClass)}>
-                            {cls.shortLabel}
-                          </span>
-                        </div>
-                        <div className="mt-2 space-y-1">
-                          <p className="text-base font-bold tabular-nums text-foreground">
-                            {d.valueDisplay} {unit}
-                            {unit === 'mg/dL' ? (
-                              <span className="ml-1 text-xs font-normal text-muted-foreground">({mgDlToMmol(d.valueMgDl)} mmol/L)</span>
-                            ) : (
-                              <span className="ml-1 text-xs font-normal text-muted-foreground">({d.valueMgDl} mg/dL)</span>
-                            )}
-                          </p>
-                          <p className="text-muted-foreground">
-                            Pora: <strong>{GLUCOSE_CONTEXT_LABELS[d.context].label}</strong>
-                          </p>
-                          {d.note && (
-                            <p className="italic text-muted-foreground/90">„{d.note}”</p>
+          <CardContent>
+            {chartData.length < 2 ? (
+              <div className="py-20 text-center space-y-3">
+                <Droplet className="size-10 mx-auto text-pink-500/50" />
+                <p className="text-sm font-medium text-foreground">
+                  Zapisz co najmniej dwa pomiary cukru, aby zobaczyć wykres trendu glikemii.
+                </p>
+                <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                  Wprowadź wynik z glukometru w formularzu obok, aby obserwować wahania cukru i reakcję organizmu na posiłki.
+                </p>
+              </div>
+            ) : (
+              <ChartContainer config={chartConfig} className="aspect-auto h-72 w-full">
+                <AreaChart data={chartData} margin={{ left: 4, right: 12, top: 12, bottom: 4 }}>
+                  <defs>
+                    <linearGradient id="fillSugarView" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#ec4899" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="#ec4899" stopOpacity={0.03} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} />
+                  <YAxis
+                    domain={[
+                      (min: number) => Math.max(40, Math.floor(Math.min(min, 65) - 5)),
+                      (max: number) => Math.ceil(Math.max(max, 145) + 10),
+                    ]}
+                    tickLine={false}
+                    axisLine={false}
+                    width={36}
+                  />
+                  <ChartTooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload || !payload.length) return null
+                      const item = payload[0].payload as (typeof chartData)[0]
+                      const val = item.bloodSugarMgDl || 0
+                      const ctx = item.bloodSugarContext || 'fasting'
+                      const evalResult = getBloodSugarStatus(val, ctx)
+                      return (
+                        <div className="rounded-lg border bg-background/95 p-2.5 shadow-md text-xs space-y-1">
+                          <div className="font-semibold text-foreground">{item.label} ({item.date})</div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-base text-pink-600 tabular-nums">{val} mg/dL</span>
+                            <span className="text-muted-foreground">({mgDlToMmol(val)} mmol/L)</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium border', evalResult.badgeClass)}>
+                              {evalResult.label}
+                            </span>
+                            <span className="text-muted-foreground text-[11px] font-medium">
+                              · {BLOOD_SUGAR_CONTEXT_LABELS[ctx] || ctx}
+                            </span>
+                          </div>
+                          {item.bloodSugarNote && (
+                            <p className="text-muted-foreground text-[11px] italic pt-0.5">„{item.bloodSugarNote}”</p>
                           )}
                         </div>
-                      </div>
-                    )
-                  }}
-                />
+                      )
+                    }}
+                  />
+                  {/* Reference Lines based on Polish Diabetes Association Guidelines */}
+                  <ReferenceLine
+                    y={70}
+                    stroke="#f59e0b"
+                    strokeDasharray="4 4"
+                    label={{ value: 'Dolna norma (70)', position: 'insideBottomLeft', fill: '#d97706', fontSize: 10 }}
+                  />
+                  <ReferenceLine
+                    y={99}
+                    stroke="#10b981"
+                    strokeDasharray="4 4"
+                    label={{ value: 'Norma na czczo (99)', position: 'insideTopLeft', fill: '#059669', fontSize: 10 }}
+                  />
+                  <ReferenceLine
+                    y={140}
+                    stroke="#ef4444"
+                    strokeDasharray="3 3"
+                    label={{ value: 'Max po posiłku (140)', position: 'insideTopRight', fill: '#dc2626', fontSize: 10 }}
+                  />
+                  <Area
+                    dataKey="bloodSugarMgDl"
+                    type="monotone"
+                    stroke="#ec4899"
+                    strokeWidth={2.5}
+                    fill="url(#fillSugarView)"
+                    dot={{ r: 4, fill: '#ec4899', strokeWidth: 1.5, stroke: '#fff' }}
+                  />
+                </AreaChart>
+              </ChartContainer>
+            )}
+          </CardContent>
+        </Card>
 
-                {/* Clinical reference lines (mg/dL or mmol/L) */}
-                <ReferenceLine
-                  y={unit === 'mg/dL' ? 70 : mgDlToMmol(70)}
-                  stroke="#38bdf8"
-                  strokeDasharray="4 4"
-                  strokeWidth={1.5}
-                  label={{ value: 'Hipo (70)', fill: '#38bdf8', fontSize: 10, position: 'right' }}
-                />
-                <ReferenceLine
-                  y={unit === 'mg/dL' ? 99 : mgDlToMmol(99)}
-                  stroke="#10b981"
-                  strokeDasharray="4 4"
-                  strokeWidth={1.5}
-                  label={{ value: 'Norma na czczo (99)', fill: '#10b981', fontSize: 10, position: 'right' }}
-                />
-                <ReferenceLine
-                  y={unit === 'mg/dL' ? 140 : mgDlToMmol(140)}
-                  stroke="#f59e0b"
-                  strokeDasharray="4 4"
-                  strokeWidth={1.5}
-                  label={{ value: 'Norma po posiłku (140)', fill: '#f59e0b', fontSize: 10, position: 'right' }}
-                />
+        {/* Form: Add or Edit Blood Sugar Record */}
+        <div className="space-y-6">
+          <Card className="border-pink-500/25">
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base flex items-center gap-1.5">
+                <Plus className="size-4 text-pink-500" />
+                {editingDate ? `Edycja pomiaru (${formatShortDate(fromDateKey(editingDate))})` : 'Dodaj pomiar cukru'}
+              </CardTitle>
+              {editingDate && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCancelEdit}
+                  className="h-7 px-2 text-xs text-muted-foreground"
+                >
+                  <X className="mr-1 size-3" /> Anuluj
+                </Button>
+              )}
+            </CardHeader>
 
-                <Line
-                  type="monotone"
-                  dataKey="valueDisplay"
-                  stroke="var(--primary)"
-                  strokeWidth={2.5}
-                  dot={{ r: 4, fill: 'var(--primary)', strokeWidth: 2, stroke: '#fff' }}
-                  activeDot={{ r: 6, stroke: 'var(--primary)', strokeWidth: 2 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </Card>
-
-      {/* History Table Grouped by Day */}
-      <Card className="overflow-hidden p-0">
-        <div className="border-b px-5 py-3.5">
-          <CardTitle className="text-base font-semibold">Dziennik Pomiarów</CardTitle>
-          <CardDescription className="text-xs">
-            Kompletna historia wykonanych pomiarów z podziałem na pory dnia i posiłki.
-          </CardDescription>
-        </div>
-
-        {groupedByDate.length === 0 ? (
-          <div className="p-8 text-center text-sm text-muted-foreground">
-            Brak zapisanych pomiarów. Kliknij „Dodaj pomiar”, aby rozpocząć rejestrację.
-          </div>
-        ) : (
-          <div className="divide-y">
-            {groupedByDate.map(([dateKey, dayEntries]) => {
-              const dateObj = fromDateKey(dateKey)
-              const isToday = dateKey === toDateKey(new Date())
-
-              return (
-                <div key={dateKey} className="space-y-1">
-                  {/* Date section header */}
-                  <div className="flex items-center justify-between bg-muted/40 px-5 py-2 text-xs font-semibold text-muted-foreground">
-                    <span className="flex items-center gap-1.5">
-                      <Calendar className="size-3.5 text-primary" />
-                      {isToday ? (
-                        <span className="text-foreground font-bold">Dzisiaj ({dateKey})</span>
-                      ) : (
-                        <span>{dateKey}</span>
-                      )}
-                    </span>
-                    <span className="text-[11px] font-normal text-muted-foreground">
-                      {dayEntries.length} {dayEntries.length === 1 ? 'pomiar' : 'pomiary'}
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {(sharedPlanInfo?.isShared || planMembers.length > 1) && (
+                  <div className="flex items-center justify-between rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
+                    <span className="text-muted-foreground">Konto dla pomiaru:</span>
+                    <span className="font-semibold text-primary flex items-center gap-1.5">
+                      <User className="size-3.5" />
+                      {activeMember?.displayName || 'Wybrane konto'}
                     </span>
                   </div>
+                )}
 
-                  {/* List of entries for this day */}
-                  <div className="divide-y">
-                    {dayEntries.map((entry) => {
-                      const cls = classifyGlucose(entry.valueMgDl, entry.context)
-                      const displayVal = unit === 'mg/dL' ? entry.valueMgDl : mgDlToMmol(entry.valueMgDl)
+                <div className="space-y-1.5">
+                  <Label htmlFor={`${id}-glucose-date`}>Data pomiaru</Label>
+                  <Input
+                    id={`${id}-glucose-date`}
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    required
+                  />
+                </div>
 
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor={`${id}-glucose-val`} className="flex items-center gap-1.5 font-semibold text-foreground">
+                      <Droplets className="size-3.5 text-pink-500" /> Wynik z glukometru (mg/dL)
+                    </Label>
+                    {sugar.trim() && Number.isFinite(Number(sugar.replace(',', '.'))) && (
+                      <span className="text-xs font-semibold text-pink-600 dark:text-pink-400">
+                        ≈ {mgDlToMmol(Number(sugar.replace(',', '.')))} mmol/L
+                      </span>
+                    )}
+                  </div>
+                  <Input
+                    id={`${id}-glucose-val`}
+                    inputMode="numeric"
+                    placeholder="np. 92"
+                    value={sugar}
+                    onChange={(e) => setSugar(e.target.value)}
+                    className="text-lg font-semibold tabular-nums"
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor={`${id}-glucose-ctx`}>Moment pomiaru (kontekst)</Label>
+                  <select
+                    id={`${id}-glucose-ctx`}
+                    value={context}
+                    onChange={(e) => setContext(e.target.value as BloodSugarContext)}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="fasting">Na czczo (po przebudzeniu)</option>
+                    <option value="postprandial">Po posiłku (1–2h)</option>
+                    <option value="before_bed">Przed snem</option>
+                    <option value="random">W ciągu dnia (losowy)</option>
+                  </select>
+                </div>
+
+                {/* Real-time clinical feedback badge */}
+                {sugar.trim() && Number.isFinite(Number(sugar.replace(',', '.'))) && (
+                  <div>
+                    {(() => {
+                      const val = Number(sugar.replace(',', '.'))
+                      if (val < 20 || val > 600) return null
+                      const evalRes = getBloodSugarStatus(val, context)
                       return (
-                        <div
-                          key={entry.id}
-                          className="flex items-center justify-between gap-3 px-5 py-3 transition-colors hover:bg-muted/20"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="flex items-center gap-1 font-mono text-xs font-semibold text-muted-foreground">
-                              <Clock className="size-3 text-muted-foreground/70" />
-                              {entry.time}
+                        <div className={cn('flex items-center gap-2 rounded-xl border p-2.5 text-xs', evalRes.badgeClass)}>
+                          <span className="font-bold">{evalRes.label}:</span>
+                          <span>{evalRes.description}</span>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <Label htmlFor={`${id}-glucose-note`} className="text-xs">
+                    Notatka (opcjonalnie)
+                  </Label>
+                  <Input
+                    id={`${id}-glucose-note`}
+                    placeholder="np. po owsiance z orzechami, przed snem"
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    maxLength={100}
+                    className="text-xs"
+                  />
+                </div>
+
+                {error && (
+                  <p role="alert" className="text-sm text-destructive flex items-center gap-1.5">
+                    <AlertTriangle className="size-4 shrink-0" />
+                    {error}
+                  </p>
+                )}
+
+                <Button type="submit" className="w-full bg-pink-600 hover:bg-pink-700 text-white font-semibold">
+                  {editingDate ? 'Zaktualizuj pomiar cukru' : 'Zapisz pomiar cukru'}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          {/* History List */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center justify-between">
+                <span>Historia pomiarów cukru</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  {allSugarEntries.length} {allSugarEntries.length === 1 ? 'wpis' : 'wpisów'}
+                </span>
+              </CardTitle>
+              <CardDescription>
+                Wszystkie zarejestrowane pomiary stężenia glukozy we krwi.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {allSugarEntries.length === 0 ? (
+                <p className="py-8 text-center text-xs text-muted-foreground">
+                  Brak zarejestrowanych pomiarów cukru.
+                </p>
+              ) : (
+                <ul className="max-h-80 divide-y overflow-y-auto pr-1">
+                  {[...allSugarEntries].reverse().map((w) => {
+                    const evalRes = getBloodSugarStatus(w.bloodSugarMgDl || 0, w.bloodSugarContext || 'fasting')
+                    return (
+                      <li key={w.date} className="flex items-center justify-between gap-2 py-2.5 text-sm">
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-foreground">{formatShortDate(fromDateKey(w.date))}</span>
+                            <span className="font-bold tabular-nums text-pink-600 dark:text-pink-400">
+                              {w.bloodSugarMgDl} mg/dL
                             </span>
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              ({mgDlToMmol(w.bloodSugarMgDl || 0)} mmol/L)
+                            </span>
+                          </div>
 
-                            <Badge
-                              variant="outline"
-                              className={cn('text-[11px] font-medium border', cls.borderClass, cls.bgClass, cls.colorClass)}
-                            >
-                              {GLUCOSE_CONTEXT_LABELS[entry.context].short}
-                            </Badge>
-
-                            {entry.note && (
-                              <span className="hidden sm:inline-block text-xs text-muted-foreground italic truncate max-w-xs">
-                                „{entry.note}”
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className={cn('text-[10px] font-medium px-2 py-0.5 rounded-md border', evalRes.badgeClass)}>
+                              {evalRes.label}
+                            </span>
+                            <span className="text-[11px] text-muted-foreground font-medium">
+                              · {BLOOD_SUGAR_CONTEXT_LABELS[w.bloodSugarContext || 'fasting'] || w.bloodSugarContext}
+                            </span>
+                            {w.bloodSugarNote && (
+                              <span className="text-[11px] text-muted-foreground italic truncate max-w-[180px]">
+                                „{w.bloodSugarNote}”
                               </span>
                             )}
                           </div>
-
-                          <div className="flex items-center gap-3">
-                            <div className="text-right">
-                              <span className="text-base font-bold tabular-nums text-foreground">
-                                {displayVal}
-                              </span>
-                              <span className="ml-1 text-xs text-muted-foreground">{unit}</span>
-                              <div className={cn('text-[10px] font-medium', cls.colorClass)}>
-                                {cls.shortLabel}
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => openEditModal(entry)}
-                                aria-label="Edytuj pomiar"
-                                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-                              >
-                                <Pencil className="size-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleDelete(entry.id)}
-                                aria-label="Usuń pomiar"
-                                className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </Button>
-                            </div>
-                          </div>
                         </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </Card>
 
-      {/* Polish Diabetes Association (PTD) Medical Norms Card */}
-      <Card className="gap-3 p-5 bg-card/60">
-        <div className="flex items-center gap-2 text-primary font-semibold text-sm">
-          <Info className="size-4" />
-          <span>Normy stężenia glukozy we krwi (wg zaleceń Polskiego Towarzystwa Diabetologicznego)</span>
-        </div>
-        <div className="grid gap-3 pt-1 text-xs text-muted-foreground sm:grid-cols-3">
-          <div className="rounded-lg border bg-background/60 p-3 space-y-1">
-            <p className="font-semibold text-emerald-600 dark:text-emerald-400">Na czczo (po przebudzeniu)</p>
-            <p className="text-base font-bold text-foreground">70 – 99 mg/dL</p>
-            <p className="text-[11px]">3.9 – 5.5 mmol/L. Prawidłowy poziom glukozy po 8-12h bez posiłku.</p>
-          </div>
-          <div className="rounded-lg border bg-background/60 p-3 space-y-1">
-            <p className="font-semibold text-emerald-600 dark:text-emerald-400">Po posiłku (1-2h po)</p>
-            <p className="text-base font-bold text-foreground">&lt; 140 mg/dL</p>
-            <p className="text-[11px]">&lt; 7.8 mmol/L. Cel glikemii poposiłkowej dla osób dbających o metabolizm.</p>
-          </div>
-          <div className="rounded-lg border bg-background/60 p-3 space-y-1">
-            <p className="font-semibold text-amber-600 dark:text-amber-400">Stan podwyższony / Alarmowy</p>
-            <p className="text-base font-bold text-foreground">&ge; 100 mg/dL na czczo</p>
-            <p className="text-[11px]">Na czczo 100-125: stan przedcukrzycowy. Poniżej 70: hipoglikemia.</p>
-          </div>
-        </div>
-      </Card>
-
-      {/* Add / Edit Measurement Dialog Modal */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <div className="flex items-center gap-2 text-primary">
-              <Droplet className="size-5" />
-              <DialogTitle>{editingEntry ? 'Edytuj pomiar cukru' : 'Nowy pomiar cukru'}</DialogTitle>
-            </div>
-            <DialogDescription className="text-xs">
-              Wprowadź wynik z glukometru lub sensora CGM.
-            </DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={handleSave} className="space-y-4 py-2">
-            {formError && (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                {formError}
-              </div>
-            )}
-
-            {/* Value Input */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <Label htmlFor={`${id}-value`} className="text-xs font-semibold">
-                  Wynik pomiaru ({unit})
-                </Label>
-                {livePreview && (
-                  <Badge variant={livePreview.badgeVariant} className="text-[10px]">
-                    {livePreview.label}
-                  </Badge>
-                )}
-              </div>
-              <div className="relative">
-                <Input
-                  id={`${id}-value`}
-                  type="number"
-                  step={unit === 'mg/dL' ? '1' : '0.1'}
-                  min={unit === 'mg/dL' ? '20' : '1.1'}
-                  max={unit === 'mg/dL' ? '700' : '38.8'}
-                  value={formValue}
-                  onChange={(e) => setFormValue(e.target.value)}
-                  placeholder={unit === 'mg/dL' ? 'np. 95' : 'np. 5.3'}
-                  className="pr-16 text-lg font-bold tabular-nums"
-                  required
-                  autoFocus
-                />
-                <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">
-                  {unit}
-                </div>
-              </div>
-
-              {/* Quick Preset Buttons */}
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {unit === 'mg/dL'
-                  ? [85, 95, 110, 125, 140, 160].map((val) => (
-                      <button
-                        key={val}
-                        type="button"
-                        onClick={() => setFormValue(String(val))}
-                        className="rounded-md border bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                      >
-                        {val}
-                      </button>
-                    ))
-                  : [4.7, 5.3, 6.1, 6.9, 7.8, 8.9].map((val) => (
-                      <button
-                        key={val}
-                        type="button"
-                        onClick={() => setFormValue(String(val))}
-                        className="rounded-md border bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                      >
-                        {val}
-                      </button>
-                    ))}
-              </div>
-            </div>
-
-            {/* Context of measurement */}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Pora pomiaru</Label>
-              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                {(Object.entries(GLUCOSE_CONTEXT_LABELS) as [GlucoseContext, { label: string; short: string }][]).map(
-                  ([ctxKey, info]) => {
-                    const selected = formContext === ctxKey
-                    return (
-                      <button
-                        key={ctxKey}
-                        type="button"
-                        onClick={() => setFormContext(ctxKey)}
-                        className={cn(
-                          'rounded-lg border px-2.5 py-1.5 text-left text-xs transition-colors',
-                          selected
-                            ? 'border-primary bg-primary/10 text-primary font-semibold'
-                            : 'border-border bg-card hover:bg-accent text-foreground',
-                        )}
-                      >
-                        {info.short}
-                      </button>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => handleEdit(w)}
+                            aria-label={`Edytuj pomiar cukru z ${formatShortDate(fromDateKey(w.date))}`}
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => handleDelete(w.date)}
+                            aria-label={`Usuń pomiar cukru z ${formatShortDate(fromDateKey(w.date))}`}
+                            className="text-muted-foreground hover:text-destructive"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
+                      </li>
                     )
-                  },
-                )}
-              </div>
-            </div>
-
-            {/* Date and Time */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor={`${id}-date`} className="text-xs font-medium">
-                  Data
-                </Label>
-                <Input
-                  id={`${id}-date`}
-                  type="date"
-                  value={formDate}
-                  onChange={(e) => setFormDate(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor={`${id}-time`} className="text-xs font-medium">
-                  Godzina
-                </Label>
-                <Input
-                  id={`${id}-time`}
-                  type="time"
-                  value={formTime}
-                  onChange={(e) => setFormTime(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-
-            {/* Optional Note */}
-            <div className="space-y-1.5">
-              <Label htmlFor={`${id}-note`} className="text-xs font-medium">
-                Notatka (opcjonalnie)
-              </Label>
-              <Input
-                id={`${id}-note`}
-                type="text"
-                placeholder="np. po owsiance z orzechami, 30 min spaceru..."
-                value={formNote}
-                onChange={(e) => setFormNote(e.target.value)}
-                maxLength={100}
-              />
-            </div>
-
-            <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>
-                Anuluj
-              </Button>
-              <Button type="submit">
-                {editingEntry ? 'Zapisz zmiany' : 'Dodaj pomiar'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+                  })}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   )
 }

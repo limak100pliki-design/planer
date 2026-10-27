@@ -245,22 +245,21 @@ export function generateDummyPlans(today: Date): Record<DateKey, DayPlan> {
 export function generateDummyWeights(today: Date): WeightEntry[] {
   const entries: WeightEntry[] = []
   const noise = [0.2, -0.1, 0.3, 0, -0.2, 0.1, 0.25, -0.15, 0.05, -0.05, 0.15, 0]
-  const sugarVals = [92, 89, 95, 91, 88, 94, 90, 93, 87, 92, 89, 91, 88, 90, 89]
+  const sugarNoise = [1, -2, 2, -1, 0, 3, -2, 1, -1, 2, -3, 0]
   let i = 0
   for (let daysAgo = 42; daysAgo >= 0; daysAgo -= 3) {
     const progress = (42 - daysAgo) / 42
     const weight = 82.6 - progress * 2.4 + noise[i % noise.length]
     const waist = 88.5 - progress * 3.2 + noise[(i + 2) % noise.length]
     const hips = 103.0 - progress * 2.5 + noise[(i + 4) % noise.length]
-    const sugar = sugarVals[i % sugarVals.length]
+    const sugar = 98 - progress * 7 + sugarNoise[i % sugarNoise.length]
     entries.push({
       date: toDateKey(addDays(today, -daysAgo)),
       weightKg: Math.round(weight * 10) / 10,
       waistCm: Math.round(waist * 10) / 10,
       hipsCm: Math.round(hips * 10) / 10,
-      bloodSugarMgDl: sugar,
-      bloodSugarContext: i % 4 === 1 ? 'postprandial' : 'fasting',
-      bloodSugarNote: i % 4 === 1 ? '1.5h po śniadaniu' : undefined,
+      bloodSugarMgDl: Math.round(sugar),
+      bloodSugarContext: 'fasting',
     })
     i++
   }
@@ -270,20 +269,20 @@ export function generateDummyWeights(today: Date): WeightEntry[] {
 export function generateDummyPartnerWeights(today: Date): WeightEntry[] {
   const entries: WeightEntry[] = []
   const noise = [-0.2, 0.1, -0.1, 0.3, -0.3, 0.2, -0.1, 0.15, -0.05, 0.1]
-  const partnerSugars = [98, 104, 99, 102, 97, 101, 96, 99, 95, 98, 94, 96, 95, 93, 92]
+  const sugarNoise = [0, 2, -1, 1, -2, 0, 3, -1, 1, -2]
   let i = 0
   for (let daysAgo = 42; daysAgo >= 0; daysAgo -= 3) {
     const progress = (42 - daysAgo) / 42
     const weight = 92.4 - progress * 3.6 + noise[i % noise.length]
     const waist = 96.0 - progress * 4.2 + noise[(i + 2) % noise.length]
     const hips = 105.5 - progress * 2.8 + noise[(i + 4) % noise.length]
-    const sugar = partnerSugars[i % partnerSugars.length]
+    const sugar = 95 - progress * 4 + sugarNoise[i % sugarNoise.length]
     entries.push({
       date: toDateKey(addDays(today, -daysAgo)),
       weightKg: Math.round(weight * 10) / 10,
       waistCm: Math.round(waist * 10) / 10,
       hipsCm: Math.round(hips * 10) / 10,
-      bloodSugarMgDl: sugar,
+      bloodSugarMgDl: Math.round(sugar),
       bloodSugarContext: 'fasting',
     })
     i++

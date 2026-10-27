@@ -1323,9 +1323,6 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       if (entry.bloodSugarContext) {
         cleanEntry.bloodSugarContext = entry.bloodSugarContext
       }
-      if (entry.bloodSugarNote && entry.bloodSugarNote.trim()) {
-        cleanEntry.bloodSugarNote = entry.bloodSugarNote.trim()
-      }
 
       if (isMyAccount) {
         setState((s) => {
