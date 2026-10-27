@@ -8,7 +8,6 @@ import {
   Check,
   Cloud,
   Copy,
-  Droplet,
   ExternalLink,
   Leaf,
   Loader2,
@@ -26,7 +25,6 @@ import { MealPlanner } from '@/components/planner/meal-planner'
 import { RecipesView } from '@/components/recipes/recipes-view'
 import { SettingsView } from '@/components/settings/settings-view'
 import { WeightView } from '@/components/weight/weight-view'
-import { GlucoseView } from '@/components/glucose/glucose-view'
 import { ShoppingView } from '@/components/shopping/shopping-view'
 import { SharePlanDialog } from '@/components/planner/share-plan-dialog'
 import { PWAInstallButton } from '@/components/pwa-install-button'
@@ -45,10 +43,9 @@ import {
 const SECTIONS = [
   { id: 'planer', label: 'Planer Posiłków', shortLabel: 'Planer', icon: CalendarDays, component: MealPlanner },
   { id: 'przepisy', label: 'Moje Przepisy', shortLabel: 'Przepisy', icon: BookOpen, component: RecipesView },
-  { id: 'cukier', label: 'Cukier we Krwi', shortLabel: 'Cukier', icon: Droplet, component: GlucoseView },
+  { id: 'cele', label: 'Cele i Parametry', shortLabel: 'Cele', icon: Target, component: SettingsView },
   { id: 'waga', label: 'Monitor Wagi', shortLabel: 'Waga', icon: Scale, component: WeightView },
   { id: 'zakupy', label: 'Lista Zakupów', shortLabel: 'Zakupy', icon: ShoppingBasket, component: ShoppingView },
-  { id: 'cele', label: 'Cele i Parametry', shortLabel: 'Cele', icon: Target, component: SettingsView },
 ] as const
 
 type SectionId = (typeof SECTIONS)[number]['id']

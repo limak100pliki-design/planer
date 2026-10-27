@@ -1317,12 +1317,6 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
       if (typeof entry.hipsCm === 'number' && !Number.isNaN(entry.hipsCm)) {
         cleanEntry.hipsCm = entry.hipsCm
       }
-      if (typeof entry.bloodSugarMgDl === 'number' && !Number.isNaN(entry.bloodSugarMgDl)) {
-        cleanEntry.bloodSugarMgDl = entry.bloodSugarMgDl
-      }
-      if (entry.bloodSugarContext) {
-        cleanEntry.bloodSugarContext = entry.bloodSugarContext
-      }
 
       if (isMyAccount) {
         setState((s) => {

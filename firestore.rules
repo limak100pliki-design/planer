@@ -53,13 +53,6 @@ service cloud.firestore {
         allow create, update: if isSignedIn() && isValidDate(date);
       }
 
-      // User's blood glucose logs (accessible to signed-in collaborators for shared accounts)
-      match /glucoseLogs/{logId} {
-        allow read: if isSignedIn();
-        allow delete: if isSignedIn();
-        allow create, update: if isSignedIn() && isValidId(logId);
-      }
-
       // User's personal shopping list fallback
       match /shopping/{docId} {
         allow read, write: if isOwner(userId) && isValidId(docId);
